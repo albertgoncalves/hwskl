@@ -6,20 +6,20 @@ data Tree a
 pad :: Int -> String
 pad n = concat $ replicate n " "
 
-showTree :: (Show a) => Tree a -> Int -> String
-showTree Leaf _ = "Leaf"
-showTree (Node h Leaf x Leaf) _ =
+showTree :: (Show a) => Int -> Tree a -> String
+showTree _ Leaf = "Leaf"
+showTree _ (Node h Leaf x Leaf) =
   concat ["(Node ", show h, " Leaf ", show x, " Leaf)"]
-showTree (Node h l x r) offset =
+showTree offset (Node h l x r) =
   concat ["(Node ", show h, indent, lShow, indent, show x, indent, rShow, ")"]
   where
     offset' = offset + 2
     indent = "\n" ++ pad offset'
-    lShow = showTree l offset'
-    rShow = showTree r offset'
+    lShow = showTree offset' l
+    rShow = showTree offset' r
 
 instance (Show a) => Show (Tree a) where
-  show t = pad n ++ showTree t n
+  show = (pad n ++) . showTree n
     where
       n = 0
 
