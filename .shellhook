@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    alias ls="ls --color=auto"
+    alias ll="ls -al"
+else
+    alias open="xdg-open"
+fi
+
+hsall () {
+    find \
+        . \
+        -type f \
+        -name '*.hs' \
+        -exec bash -c '
+            echo "$1"
+            hlint "$1"
+            ormolu -m inplace "$1"
+            echo ""
+        ' bash {} \;
+}
+
+export WD=$PWD
+export -f hsall
+alias runh="runghc -Wall -Werror"
