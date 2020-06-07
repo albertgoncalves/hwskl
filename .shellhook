@@ -23,3 +23,4 @@ hsall () {
 export WD=$PWD
 export -f hsall
 alias runh="runghc -Wall -Werror"
+alias ormolu="ormolu -m inplace"
