@@ -3,33 +3,35 @@ data Tree a
   | Node Int (Tree a) a (Tree a)
   deriving (Eq, Ord)
 
-duplicate :: Int -> String -> String
-duplicate = (>>) . enumFromTo 1
+pad :: Int -> String
+pad n = concat $ replicate n " "
 
 showTree :: (Show a) => Tree a -> Int -> String
 showTree Leaf _ = "Leaf"
-showTree (Node n Leaf x Leaf) _ =
-  concat ["Node ", show n, " Leaf ", show x, " Leaf"]
-showTree (Node n l x r) n' =
-  concat ["Node ", show n, indent, l', indent, show x, indent, r']
+showTree (Node h Leaf x Leaf) _ =
+  concat ["Node ", show h, " Leaf ", show x, " Leaf"]
+showTree (Node h l x r) offset =
+  concat ["Node ", show h, indent, l', indent, show x, indent, r']
   where
-    n'' = n' + 2
-    l' = showTree l n''
-    r' = showTree r n''
-    indent = "\n" ++ duplicate n'' " "
+    offset' = offset + 2
+    l' = showTree l offset'
+    r' = showTree r offset'
+    indent = "\n" ++ pad offset'
 
 instance (Show a) => Show (Tree a) where
-  show t = showTree t 0
+  show t = pad n ++ showTree t n
+    where
+      n = 0
 
 height :: Tree a -> Int
 height Leaf = -1
-height (Node n _ _ _) = n
+height (Node h _ _ _) = h
 
 insert :: (Ord a) => a -> Tree a -> Tree a
 insert x Leaf = Node 0 Leaf x Leaf
-insert x (Node n l x' r)
-  | lHeight < rHeight = Node n l' x' r
-  | rHeight < lHeight = Node n l x' (insert x r)
+insert x (Node h l x' r)
+  | lHeight < rHeight = Node h l' x' r
+  | lHeight > rHeight = Node h l x' (insert x r)
   | otherwise = Node (height l' + 1) l' x' r
   where
     lHeight = height l
