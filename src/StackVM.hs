@@ -1,16 +1,14 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
 
-{- NOTE: Applicative parser for infix arithmetic expressions without any
- - dependency on hackage. Builds an explicit representation of the syntax tree
- - to fold over using client-supplied semantics.
+{- NOTE: See `Week 5` over at
+ - `https://www.cis.upenn.edu/~cis194/spring13/lectures.html`.
  -}
+
 import Control.Applicative hiding (Const)
 import Control.Arrow
 import Control.Monad (void)
 import Data.Char
 import Data.List (foldl')
-import Data.Text (Text)
 
 class Expr a where
   lit :: Int -> a
@@ -143,16 +141,16 @@ type Stack = [StackVal]
 
 type Program = [StackExp]
 
-stackVM :: Program -> Either Text StackVal
+stackVM :: Program -> Either String StackVal
 stackVM = execute []
 
-errType :: Text -> Either Text a
+errType :: String -> Either String a
 errType op' = Left $ "Encountered '" <> op' <> "' opcode with ill-typed stack."
 
-errUnderflow :: Text -> Either Text a
+errUnderflow :: String -> Either String a
 errUnderflow op' = Left $ "Stack underflow with '" <> op' <> "' opcode."
 
-execute :: Stack -> Program -> Either Text StackVal
+execute :: Stack -> Program -> Either String StackVal
 execute [] [] = Right Void
 execute (s : _) [] = Right s
 execute s (PushI x : xs) = execute (IVal x : s) xs
@@ -168,7 +166,7 @@ instance Expr Program where
   add l r = l <> r <> [Add]
   mul l r = l <> r <> [Mul]
 
-compile :: String -> Either Text StackVal
+compile :: String -> Either String StackVal
 compile s = maybe (Left "Unable to parse input.") stackVM (parseExpr s)
 
 main :: IO ()
