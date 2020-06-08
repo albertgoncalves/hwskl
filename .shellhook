@@ -8,16 +8,12 @@ else
 fi
 
 hsall () {
-    find \
-        . \
-        -type f \
-        -name '*.hs' \
-        -exec bash -c '
-            echo "$1"
-            hlint "$1"
-            ormolu -m inplace "$1"
-            echo ""
-        ' bash {} \;
+    find . -type f -name '*.hs' | parallel '
+        echo {}
+        hlint {}
+        ormolu -m inplace {}
+        echo ""
+    '
 }
 
 export WD=$PWD
