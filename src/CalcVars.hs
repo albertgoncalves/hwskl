@@ -48,6 +48,7 @@ main :: IO ()
 main = do
   print (add (lit 3) (var "x") :: VarExprT)
   print $ withVars [("x", 6)] $ add (lit 3) (var "x")
+  print $ withVars [("x", 6)] $ mul (lit 3) (var "x")
   print $ withVars [("x", 6)] $ add (lit 3) (var "y")
   print
     $ withVars [("x", 6), ("y", 3)]
