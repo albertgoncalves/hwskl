@@ -8,8 +8,12 @@ instance (Ord a) => Ord (Tree a) where
   compare Leaf Node {} = LT
   compare (Node l _ _ _) (Node r _ _ _) = compare l r
 
+{-# INLINE (.:) #-}
+(.:) :: (c -> d) -> (a -> b -> c) -> (a -> b -> d)
+(f .: g) x y = f $ g x y
+
 instance (Ord a) => Eq (Tree a) where
-  a == b = compare a b == EQ
+  (==) = (== EQ) .: compare
 
 main :: IO ()
 main = do
