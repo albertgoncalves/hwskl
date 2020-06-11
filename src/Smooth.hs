@@ -21,9 +21,15 @@ smooth' = concatMap f . groupBy (const isNothing)
         n = length xs
     f _ = []
 
+smoothIvan :: (Real a, Fractional b) => [Maybe a] -> [b]
+smoothIvan [] = []
+smoothIvan (x : xs) = replicate n (x' / fromIntegral n) ++ smoothIvan rest
+  where
+    (nulls, rest) = span null xs
+    n = length nulls + 1
+    x' = maybe 0 realToFrac x
+
 main :: IO ()
-main = do
-  print (smooth xs :: [Float])
-  print (smooth' xs :: [Float])
+main = mapM_ (\f -> print (f xs :: [Float])) [smooth, smooth', smoothIvan]
   where
     xs = [Just 2, Nothing, Nothing, Nothing, Just 1] :: [Maybe Int]
