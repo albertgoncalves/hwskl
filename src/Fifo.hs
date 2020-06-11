@@ -1,3 +1,6 @@
+import Data.Char (toUpper)
+import Data.List (unfoldr)
+
 data Fifo a
   = Fifo
       { getInput :: [a],
@@ -5,25 +8,41 @@ data Fifo a
       }
   deriving (Show)
 
-empty :: Fifo a
-empty = Fifo [] []
+instance Monoid (Fifo a) where
+  mempty = Fifo [] []
+
+instance Semigroup (Fifo a) where
+  (Fifo i1 o1) <> (Fifo i2 o2) = Fifo [] $ o1 <> reverse i1 <> o2 <> reverse i2
+
+instance Functor Fifo where
+  fmap f (Fifo i o) = Fifo (fmap f i) (fmap f o)
+
+instance Applicative Fifo where
+  pure x = Fifo [] [x]
+  (Fifo fI fO) <*> (Fifo i o) = Fifo (fI <*> i) (fO <*> o)
 
 push :: Fifo a -> a -> Fifo a
-push (Fifo input output) x = Fifo (x : input) output
+push (Fifo i o) x = Fifo (x : i) o
 
-pop :: Fifo a -> Maybe (Fifo a, a)
+pop :: Fifo a -> Maybe (a, Fifo a)
 pop (Fifo [] []) = Nothing
-pop (Fifo input (x : output)) = Just (Fifo input output, x)
-pop (Fifo input []) = pop $ Fifo [] $ reverse input
+pop (Fifo i (x : o)) = Just (x, Fifo i o)
+pop (Fifo i []) = pop $ Fifo [] $ reverse i
 
-peek :: Fifo a -> Maybe (Fifo a, a)
+peek :: Fifo a -> Maybe (a, Fifo a)
 peek (Fifo [] []) = Nothing
-peek (Fifo input output@(x : _)) = Just (Fifo input output, x)
-peek (Fifo input []) = peek $ Fifo [] $ reverse input
+peek (Fifo i o@(x : _)) = Just (x, Fifo i o)
+peek (Fifo i []) = peek $ Fifo [] $ reverse i
 
 main :: IO ()
 main = do
-  print queue
-  print $ pop queue >>= pop . flip push 'd' . fst
+  print $ pop queue
+  print maybeQueue
+  print $ do
+    queue' <- maybeQueue
+    return $ snd queue' <> (toUpper <$> snd queue')
+  print $ unfoldr pop queue
   where
-    queue = foldl push empty "abc"
+    queue = foldl push mempty "abcdefg"
+    push' = flip push
+    maybeQueue = pop queue >>= pop . push' 'i' . push' 'h' . snd
