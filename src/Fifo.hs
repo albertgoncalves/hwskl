@@ -40,7 +40,7 @@ main = do
   print maybeQueue
   print $ do
     queue' <- maybeQueue
-    return $ snd queue' <> (toUpper <$> snd queue')
+    Just $ snd queue' <> (toUpper <$> snd queue')
   print $ unfoldr pop queue
   where
     queue = foldl push mempty "abcdefg"
