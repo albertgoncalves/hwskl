@@ -33,60 +33,59 @@ instance Alternative Parser where
   empty = Parser (const Nothing)
   (Parser p1) <|> (Parser p2) = Parser $ \xs -> p1 xs <|> p2 xs
 
-parseCondition :: (Char -> Bool) -> Parser Char
-parseCondition f = Parser f'
+satisfy :: (Char -> Bool) -> Parser Char
+satisfy f = Parser f'
   where
     f' (x : xs)
       | f x = Just (xs, x)
     f' _ = Nothing
 
-parseChar :: Char -> Parser Char
-parseChar = parseCondition . (==)
-
-parseString :: String -> Parser String
-parseString = traverse parseChar
+matchString :: String -> Parser String
+matchString = traverse $ satisfy . (==)
 
 jsonNull :: Parser JsonValue
-jsonNull = JsonNull <$ parseString "null"
+jsonNull = JsonNull <$ matchString "null"
 
 jsonBool :: Parser JsonValue
 jsonBool =
-  JsonBool <$> (True <$ parseString "true" <|> False <$ parseString "false")
+  JsonBool <$> (True <$ matchString "true" <|> False <$ matchString "false")
 
 jsonNumber :: Parser JsonValue
-jsonNumber = JsonNumber . read <$> some (parseCondition isDigit)
+jsonNumber = JsonNumber . read <$> some (satisfy isDigit)
 
-anyStringLiteral :: Parser String
-anyStringLiteral =
-  parseChar '"' *> many (parseCondition (/= '"')) <* parseChar '"'
+doubleQuote :: Parser Char
+doubleQuote = satisfy (== '"')
+
+stringLiteral :: Parser String
+stringLiteral = doubleQuote *> many (satisfy (/= '"')) <* doubleQuote
 
 jsonString :: Parser JsonValue
-jsonString = JsonString <$> anyStringLiteral
+jsonString = JsonString <$> stringLiteral
 
 sepBy :: Parser a -> Parser b -> Parser [b]
 sepBy sep item = (:) <$> item <*> many (sep *> item) <|> pure []
 
 anySpace :: Parser String
-anySpace = many $ parseCondition isSpace
+anySpace = many $ satisfy isSpace
 
 comma :: Parser Char
-comma = anySpace *> parseChar ',' <* anySpace
+comma = anySpace *> satisfy (== ',') <* anySpace
 
 jsonArray :: Parser JsonValue
 jsonArray = JsonArray <$> (lBracket *> sepBy comma jsonValue <* rBracket)
   where
-    lBracket = parseChar '[' *> anySpace
-    rBracket = anySpace <* parseChar ']'
+    lBracket = satisfy (== '[') *> anySpace
+    rBracket = anySpace <* satisfy (== ']')
 
 jsonObject :: Parser JsonValue
 jsonObject = JsonObject <$> (lBrace *> sepBy comma pair <* rBrace)
   where
-    lBrace = parseChar '{' *> anySpace
-    rBrace = anySpace <* parseChar '}'
+    lBrace = satisfy (== '{') *> anySpace
+    rBrace = anySpace <* satisfy (== '}')
     pair =
       (\key _ value -> (key, value))
-        <$> anyStringLiteral
-        <*> (anySpace *> parseChar ':' <* anySpace)
+        <$> stringLiteral
+        <*> (anySpace *> satisfy (== ':') <* anySpace)
         <*> jsonValue
 
 jsonValue :: Parser JsonValue
