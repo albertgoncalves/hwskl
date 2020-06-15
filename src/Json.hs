@@ -98,7 +98,7 @@ jsonValue =
     <|> jsonObject
 
 main :: IO ()
-main = do
+main =
   mapM_
     (print . runParser jsonValue)
     [ "",
