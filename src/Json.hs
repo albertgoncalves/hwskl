@@ -4,10 +4,7 @@ import Data.Char (isDigit, isSpace)
 
 {- NOTE: See `https://www.youtube.com/watch?v=N9RUqGYuGfw`. -}
 
-newtype Parser a
-  = Parser
-      { runParser :: String -> Maybe (String, a)
-      }
+newtype Parser a = Parser {runParser :: String -> Maybe (String, a)}
 
 {- NOTE:
  -  $ ghci
@@ -18,19 +15,19 @@ instance Functor Parser where
   fmap f (Parser p) = Parser $ fmap (fmap f) . p
 
 instance Applicative Parser where
-  pure x = Parser $ \s -> Just (s, x)
+  pure x = Parser $ \s -> pure (s, x)
   (Parser p1) <*> (Parser p2) = Parser $ p1 >=> \(s, f) -> fmap (fmap f) (p2 s)
 
 instance Alternative Parser where
-  empty = Parser $ const Nothing
+  empty = Parser $ const empty
   (Parser p1) <|> (Parser p2) = Parser $ \s -> p1 s <|> p2 s
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy f = Parser f'
   where
     f' (x : xs)
-      | f x = Just (xs, x)
-    f' _ = Nothing
+      | f x = pure (xs, x)
+    f' _ = empty
 
 matchString :: String -> Parser String
 matchString = traverse $ satisfy . (==)
