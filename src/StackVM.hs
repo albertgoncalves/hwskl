@@ -5,9 +5,9 @@
  -}
 
 import Control.Applicative hiding (Const)
-import Control.Arrow
+import Control.Arrow (first)
 import Control.Monad (void)
-import Data.Char
+import Data.Char (digitToInt, isDigit, isSpace)
 import Data.List (foldl')
 
 class Expr a where

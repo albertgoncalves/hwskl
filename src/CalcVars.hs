@@ -1,8 +1,9 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import qualified Data.Map.Strict as M
+import Data.Map.Strict (Map, fromList, lookup)
 import Data.Text (Text)
+import Prelude hiding (lookup)
 
 class Expr a where
   lit :: Int -> a
@@ -27,7 +28,7 @@ instance Expr VarExprT where
 instance HasVars VarExprT where
   var = Var
 
-instance (Monad m) => Expr (M.Map Text Int -> m Int) where
+instance (Monad m) => Expr (Map Text Int -> m Int) where
   lit = const . return
   add l r m = do
     l' <- l m
@@ -38,11 +39,11 @@ instance (Monad m) => Expr (M.Map Text Int -> m Int) where
     r' <- r m
     return $ l' * r'
 
-instance HasVars (M.Map Text Int -> Maybe Int) where
-  var = M.lookup
+instance HasVars (Map Text Int -> Maybe Int) where
+  var = lookup
 
-withVars :: [(Text, Int)] -> (M.Map Text Int -> Maybe Int) -> Maybe Int
-withVars xs = ($ M.fromList xs)
+withVars :: [(Text, Int)] -> (Map Text Int -> Maybe Int) -> Maybe Int
+withVars xs = ($ fromList xs)
 
 main :: IO ()
 main = do
