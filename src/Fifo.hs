@@ -37,6 +37,7 @@ peek (Fifo i []) = peek $ Fifo [] $ reverse i
 main :: IO ()
 main = do
   print $ pop queue
+  print $ peek queue
   print maybeQueue
   print $ do
     queue' <- maybeQueue
