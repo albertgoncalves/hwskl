@@ -24,7 +24,7 @@ hsall () {
     '
 }
 
-export ARGS=(
+export FLAGS=(
     -fprof-auto
     -prof
     -rtsopts
@@ -39,7 +39,7 @@ runh () {
     cp "$1" "$WD/build/$handle.hs"
     (
         cd "$WD/build" || return
-        ghc "${ARGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
+        ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
         cd "$pin" || return
         if [ -z "$2" ]; then
             "$WD/bin/$handle"
