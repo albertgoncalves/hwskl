@@ -1,37 +1,29 @@
 import Control.Applicative ((<|>), Alternative, empty, many, some)
+import Control.Monad ((>=>))
 import Data.Char (isDigit, isSpace)
 
 {- NOTE: See `https://www.youtube.com/watch?v=N9RUqGYuGfw`. -}
-
-data JsonValue
-  = JsonNull
-  | JsonBool Bool
-  | JsonNumber Int
-  | JsonString String
-  | JsonArray [JsonValue]
-  | JsonObject [(String, JsonValue)]
-  deriving (Show)
 
 newtype Parser a
   = Parser
       { runParser :: String -> Maybe (String, a)
       }
 
+{- NOTE:
+ -  $ ghci
+ -  > fmap (fmap (+ 1)) (Just (1, 2))
+ -  Just (1,3)
+ -}
 instance Functor Parser where
-  fmap f (Parser a) = Parser $ \xs -> do
-    (xs', x) <- a xs
-    Just (xs', f x)
+  fmap f (Parser p) = Parser $ fmap (fmap f) . p
 
 instance Applicative Parser where
-  pure x = Parser $ \xs -> Just (xs, x)
-  (Parser f) <*> (Parser a) = Parser $ \xs -> do
-    (xs', f') <- f xs
-    (xs'', a') <- a xs'
-    Just (xs'', f' a')
+  pure x = Parser $ \s -> Just (s, x)
+  (Parser p1) <*> (Parser p2) = Parser $ p1 >=> \(s, f) -> fmap (fmap f) (p2 s)
 
 instance Alternative Parser where
-  empty = Parser (const Nothing)
-  (Parser p1) <|> (Parser p2) = Parser $ \xs -> p1 xs <|> p2 xs
+  empty = Parser $ const Nothing
+  (Parser p1) <|> (Parser p2) = Parser $ \s -> p1 s <|> p2 s
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy f = Parser f'
@@ -43,24 +35,11 @@ satisfy f = Parser f'
 matchString :: String -> Parser String
 matchString = traverse $ satisfy . (==)
 
-jsonNull :: Parser JsonValue
-jsonNull = JsonNull <$ matchString "null"
-
-jsonBool :: Parser JsonValue
-jsonBool =
-  JsonBool <$> (True <$ matchString "true" <|> False <$ matchString "false")
-
-jsonNumber :: Parser JsonValue
-jsonNumber = JsonNumber . read <$> some (satisfy isDigit)
-
 doubleQuote :: Parser Char
 doubleQuote = satisfy (== '"')
 
 stringLiteral :: Parser String
 stringLiteral = doubleQuote *> many (satisfy (/= '"')) <* doubleQuote
-
-jsonString :: Parser JsonValue
-jsonString = JsonString <$> stringLiteral
 
 sepBy :: Parser a -> Parser b -> Parser [b]
 sepBy sep item = (:) <$> item <*> many (sep *> item) <|> pure []
@@ -71,6 +50,28 @@ anySpace = many $ satisfy isSpace
 comma :: Parser Char
 comma = anySpace *> satisfy (== ',') <* anySpace
 
+data JsonValue
+  = JsonNull
+  | JsonBool Bool
+  | JsonNumber Int
+  | JsonString String
+  | JsonArray [JsonValue]
+  | JsonObject [(String, JsonValue)]
+  deriving (Show)
+
+jsonNull :: Parser JsonValue
+jsonNull = JsonNull <$ matchString "null"
+
+jsonBool :: Parser JsonValue
+jsonBool =
+  JsonBool <$> (True <$ matchString "true" <|> False <$ matchString "false")
+
+jsonNumber :: Parser JsonValue
+jsonNumber = JsonNumber . read <$> some (satisfy isDigit)
+
+jsonString :: Parser JsonValue
+jsonString = JsonString <$> stringLiteral
+
 jsonArray :: Parser JsonValue
 jsonArray = JsonArray <$> (lBracket *> sepBy comma jsonValue <* rBracket)
   where
@@ -80,13 +81,12 @@ jsonArray = JsonArray <$> (lBracket *> sepBy comma jsonValue <* rBracket)
 jsonObject :: Parser JsonValue
 jsonObject = JsonObject <$> (lBrace *> sepBy comma pair <* rBrace)
   where
+    pair =
+      (,)
+        <$> stringLiteral
+        <*> (anySpace *> satisfy (== ':') *> anySpace *> jsonValue)
     lBrace = satisfy (== '{') *> anySpace
     rBrace = anySpace <* satisfy (== '}')
-    pair =
-      (\key _ value -> (key, value))
-        <$> stringLiteral
-        <*> (anySpace *> satisfy (== ':') <* anySpace)
-        <*> jsonValue
 
 jsonValue :: Parser JsonValue
 jsonValue =
@@ -103,13 +103,21 @@ main =
     (print . runParser jsonValue)
     [ "",
       "null",
+      "tru",
       "true",
+      "fals",
       "false",
       "123",
+      "\"",
       "\"\"",
+      "\"foobar",
       "\"foobar\"",
+      "1, 2, 3",
+      "[1, 2, 3",
+      "[1, 2, 3]",
       "[[1, 2, 3], null, [true, false], \"foobar\"]",
-      "[ [ 1, 2, 3 ], null, [ true, false ], \"foobar\" ]",
+      "[ [ 1 , 2 , 3 ] , null , [ true , false ] , \"foobar\" ]",
+      "{}",
       "{\"key1\": \"value1\", \"key2\": null}",
       "{ \"key1\" : \"value1\" , \"key2\" : null }"
     ]
