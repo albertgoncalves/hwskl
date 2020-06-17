@@ -7,8 +7,16 @@ else
     alias open="xdg-open"
 fi
 
+export WD=$PWD
+
+for x in bin build; do
+    if [ ! -d "$WD/$x" ]; then
+        mkdir "$WD/$x"
+    fi
+done
+
 hsall () {
-    find . -type f -name '*.hs' | parallel '
+    find "$WD/src" -type f -name '*.hs' | parallel '
         echo {}
         hlint {}
         ormolu -m inplace {}
@@ -16,7 +24,31 @@ hsall () {
     '
 }
 
-export WD=$PWD
+export ARGS=(
+    -fprof-auto
+    -prof
+    -rtsopts
+    -Wall
+    -Werror
+    -Wno-unused-top-binds
+)
+
+runh () {
+    handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
+    pin=$PWD
+    cp "$1" "$WD/build/$handle.hs"
+    (
+        cd "$WD/build" || return
+        ghc "${ARGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
+        cd "$pin" || return
+        if [ -z "$2" ]; then
+            "$WD/bin/$handle"
+        else
+            "$WD/bin/$handle" +RTS -pa -RTS
+        fi
+    )
+}
+
+export -f runh
 export -f hsall
-alias runh="runghc -Wall -Werror"
 alias ormolu="ormolu -m inplace"
