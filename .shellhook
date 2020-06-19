@@ -43,12 +43,22 @@ runh () {
         cd "$pin" || return
         if [ -z "$2" ]; then
             "$WD/bin/$handle"
-        else
+        elif [ "$2" == "profile" ]; then
             "$WD/bin/$handle" +RTS -pa -RTS
         fi
     )
 }
 
-export -f runh
+checkh () {
+    handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
+    cp "$1" "$WD/build/$handle.hs"
+    (
+        cd "$WD/build" || return
+        ghc "${FLAGS[@]}" -fno-code "$handle.hs" || return
+    )
+}
+
 export -f hsall
+export -f runh
+export -f checkh
 alias ormolu="ormolu -m inplace"
