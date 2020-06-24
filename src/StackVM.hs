@@ -6,7 +6,7 @@
 
 import Control.Applicative hiding (Const)
 import Control.Arrow (first)
-import Control.Monad (void)
+import Control.Monad ((>=>), void)
 import Data.Char (digitToInt, isDigit, isSpace)
 import Data.List (foldl')
 
@@ -32,10 +32,7 @@ instance Functor (State s) where
 
 instance Applicative (State s) where
   pure x = State $ \s -> Just (x, s)
-  State f <*> State g = State $ \s ->
-    case f s of
-      Nothing -> Nothing
-      Just (r, s') -> fmap (first r) . g $ s'
+  State f <*> State g = State $ f >=> (\(r, s') -> fmap (first r) . g $ s')
 
 instance Alternative (State s) where
   empty = State $ const Nothing
