@@ -29,9 +29,9 @@ pop (Fifo [] []) = Nothing
 pop (Fifo i (x : o)) = Just (x, Fifo i o)
 pop (Fifo i []) = pop $ Fifo [] $ reverse i
 
-peek :: Fifo a -> Maybe (a, Fifo a)
+peek :: Fifo a -> Maybe a
 peek (Fifo [] []) = Nothing
-peek (Fifo i o@(x : _)) = Just (x, Fifo i o)
+peek (Fifo _ (x : _)) = Just x
 peek (Fifo i []) = peek $ Fifo [] $ reverse i
 
 main :: IO ()
