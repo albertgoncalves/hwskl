@@ -2,11 +2,10 @@ import Control.Monad ((<=<))
 import Data.Maybe (mapMaybe)
 import Text.Read (readMaybe)
 
-data Time
-  = Time
-      { getHour :: Int,
-        getMin :: Int
-      }
+data Time = Time
+  { getHour :: Int,
+    getMin :: Int
+  }
 
 instance Show Time where
   show (Time h 0) = show h ++ " o'clock"

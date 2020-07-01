@@ -1,18 +1,17 @@
 import Data.Char (toUpper)
 import Data.List (unfoldr)
 
-data Fifo a
-  = Fifo
-      { getInput :: [a],
-        getOutput :: [a]
-      }
+data Fifo a = Fifo
+  { getInput :: [a],
+    getOutput :: [a]
+  }
   deriving (Show)
 
 instance Monoid (Fifo a) where
   mempty = Fifo [] []
 
 instance Semigroup (Fifo a) where
-  (Fifo i1 o1) <> (Fifo i2 o2) = Fifo [] $ o1 <> reverse i1 <> o2 <> reverse i2
+  (Fifo i1 o1) <> (Fifo i2 o2) = Fifo [] $ o1 ++ reverse i1 ++ o2 ++ reverse i2
 
 instance Functor Fifo where
   fmap f (Fifo i o) = Fifo (fmap f i) (fmap f o)
@@ -37,6 +36,11 @@ peek :: Fifo a -> Maybe a
 peek (Fifo [] []) = Nothing
 peek (Fifo _ (x : _)) = Just x
 peek (Fifo i []) = head' $ reverse i
+
+flush :: Fifo a -> Fifo a
+flush (Fifo [] []) = Fifo [] []
+flush (Fifo i []) = Fifo [] (reverse i)
+flush (Fifo i o) = Fifo [] (o ++ reverse i)
 
 main :: IO ()
 main = do
