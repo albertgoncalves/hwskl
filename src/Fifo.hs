@@ -21,6 +21,10 @@ instance Applicative Fifo where
   pure x = Fifo [] [x]
   (Fifo fI fO) <*> (Fifo i o) = Fifo (fI <*> i) (fO <*> o)
 
+head' :: [a] -> Maybe a
+head' [] = Nothing
+head' (x : _) = Just x
+
 push :: Fifo a -> a -> Fifo a
 push (Fifo i o) x = Fifo (x : i) o
 
@@ -32,7 +36,7 @@ pop (Fifo i []) = pop $ Fifo [] $ reverse i
 peek :: Fifo a -> Maybe a
 peek (Fifo [] []) = Nothing
 peek (Fifo _ (x : _)) = Just x
-peek (Fifo i []) = peek $ Fifo [] $ reverse i
+peek (Fifo i []) = head' $ reverse i
 
 main :: IO ()
 main = do
