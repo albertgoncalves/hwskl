@@ -38,9 +38,7 @@ peek (Fifo _ (x : _)) = Just x
 peek (Fifo i []) = head' $ reverse i
 
 flush :: Fifo a -> Fifo a
-flush (Fifo [] []) = Fifo [] []
-flush (Fifo i []) = Fifo [] (reverse i)
-flush (Fifo i o) = Fifo [] (o ++ reverse i)
+flush (Fifo i o) = Fifo [] $ o ++ reverse i
 
 main :: IO ()
 main = do
