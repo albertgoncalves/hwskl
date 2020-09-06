@@ -34,10 +34,10 @@ delete (Node k' v' l r) k
 
 lookup :: (Ord a) => Tree a b -> a -> Maybe b
 lookup Leaf _ = Nothing
-lookup (Node k' v l r) k
+lookup (Node k' v' l r) k
   | k < k' = lookup l k
   | k > k' = lookup r k
-  | otherwise = Just v
+  | otherwise = Just v'
 
 pop :: (Ord a) => Tree a b -> a -> Maybe (b, Tree a b)
 pop t k = lookup t k >>= \v -> Just (v, delete t k)
