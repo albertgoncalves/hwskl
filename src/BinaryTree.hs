@@ -6,6 +6,13 @@ data Tree a b
   | Node a b (Tree a b) (Tree a b)
   deriving (Show)
 
+insert :: (Ord a) => Tree a b -> a -> b -> Tree a b
+insert Leaf k v = Node k v Leaf Leaf
+insert (Node k' v' l r) k v
+  | k < k' = Node k' v' (insert l k v) r
+  | k > k' = Node k' v' l (insert r k v)
+  | otherwise = Node k v l r
+
 instance (Ord a) => Monoid (Tree a b) where
   mempty = Leaf
 
@@ -13,17 +20,7 @@ instance (Ord a) => Semigroup (Tree a b) where
   Leaf <> Leaf = Leaf
   Leaf <> t = t
   t <> Leaf = t
-  l@(Node k1 v1 l1 r1) <> r@(Node k2 v2 l2 r2)
-    | k1 < k2 = Node k2 v2 (l <> l2) r2
-    | k1 > k2 = Node k1 v1 l1 (r <> r1)
-    | otherwise = l
-
-insert :: (Ord a) => Tree a b -> a -> b -> Tree a b
-insert Leaf k v = Node k v Leaf Leaf
-insert (Node k' v' l r) k v
-  | k < k' = Node k' v' (insert l k v) r
-  | k > k' = Node k' v' l (insert r k v)
-  | otherwise = Node k v l r
+  l <> (Node k2 v2 l2 r2) = ((insert l k2 v2) <> l2) <> r2
 
 delete :: (Ord a) => Tree a b -> a -> Tree a b
 delete Leaf _ = Leaf
