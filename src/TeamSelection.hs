@@ -1,5 +1,7 @@
 import Data.List (subsequences)
 
+{- NOTE: See `https://codeforces.com/gym/102646/problem/D`. -}
+
 combinations :: Int -> [a] -> [[a]]
 combinations n = filter ((== n) . length) . subsequences
 
