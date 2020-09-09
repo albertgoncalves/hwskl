@@ -1,4 +1,4 @@
-import Control.Applicative ((<|>), Alternative, empty, many, some)
+import Control.Applicative (Alternative, empty, many, some, (<|>))
 import Control.Monad ((>=>))
 import Data.Char (isDigit, isSpace)
 

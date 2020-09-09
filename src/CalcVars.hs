@@ -51,6 +51,6 @@ main = do
   print $ withVars [("x", 6)] $ add (lit 3) (var "x")
   print $ withVars [("x", 6)] $ mul (lit 3) (var "x")
   print $ withVars [("x", 6)] $ add (lit 3) (var "y")
-  print
-    $ withVars [("x", 6), ("y", 3)]
-    $ mul (var "x") (add (var "y") (var "x"))
+  print $
+    withVars [("x", 6), ("y", 3)] $
+      mul (var "x") (add (var "y") (var "x"))

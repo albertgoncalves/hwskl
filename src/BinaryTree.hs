@@ -20,7 +20,7 @@ instance (Ord a) => Semigroup (Tree a b) where
   Leaf <> Leaf = Leaf
   Leaf <> t = t
   t <> Leaf = t
-  l <> (Node k2 v2 l2 r2) = ((insert l k2 v2) <> l2) <> r2
+  l <> (Node k2 v2 l2 r2) = (insert l k2 v2 <> l2) <> r2
 
 delete :: (Ord a) => Tree a b -> a -> Tree a b
 delete Leaf _ = Leaf
