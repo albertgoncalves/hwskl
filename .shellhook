@@ -25,6 +25,7 @@ hsall () {
 }
 
 export FLAGS=(
+    -fdiagnostics-color=always
     -fprof-auto
     -prof
     -rtsopts
