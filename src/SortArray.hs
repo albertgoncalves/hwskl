@@ -1,15 +1,18 @@
 import Control.Monad (when)
-import Data.Array.IO
-  ( IOArray,
+import Control.Monad.ST (ST)
+import Data.Array.IArray (elems)
+import Data.Array.MArray
+  ( MArray,
     getBounds,
-    getElems,
     newListArray,
     readArray,
     writeArray,
   )
+import Data.Array.ST (STUArray, runSTUArray)
 import Data.Foldable (for_)
+import Data.Ix (Ix)
 
-bubbleSort :: Ord a => IOArray Int a -> IO ()
+bubbleSort :: (MArray a e m, Ix i, Num i, Enum i, Ord e) => a i e -> m ()
 bubbleSort xs = do
   (l, r) <- getBounds xs
   for_ [l .. r - 1] $ \i ->
@@ -20,12 +23,15 @@ bubbleSort xs = do
         writeArray xs i y
         writeArray xs j x
 
-fromList :: [a] -> IO (IOArray Int a)
-fromList xs = newListArray (0, length xs - 1) xs
-
 main :: IO ()
 main = do
-  xs <- fromList [4, 2, 3, 5, 1 :: Int]
-  getElems xs >>= print
-  bubbleSort xs
-  getElems xs >>= print
+  print xs
+  print xs'
+  where
+    xs = [8, 6, 4, 10, 1 :: Int]
+    n = length xs - 1
+    xs' = elems $
+      runSTUArray $ do
+        xs'' <- (newListArray (0, n) xs :: ST s (STUArray s Int Int))
+        bubbleSort xs''
+        return xs''
