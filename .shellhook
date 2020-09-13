@@ -27,6 +27,8 @@ hsall () {
 export FLAGS=(
     -fdiagnostics-color=always
     -fprof-auto
+    --make
+    -outputdir "$WD/build"
     -prof
     -rtsopts
     -Wall
@@ -42,9 +44,8 @@ export FLAGS=(
 runh () {
     handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
     pin=$PWD
-    cp "$1" "$WD/build/$handle.hs"
     (
-        cd "$WD/build" || return
+        cd "$WD/src" || return
         ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
         cd "$pin" || return
         if [ -z "$2" ]; then
@@ -57,9 +58,8 @@ runh () {
 
 checkh () {
     handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
-    cp "$1" "$WD/build/$handle.hs"
     (
-        cd "$WD/build" || return
+        cd "$WD/src" || return
         ghc "${FLAGS[@]}" -fno-code "$handle.hs" || return
     )
 }
