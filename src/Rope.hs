@@ -1,3 +1,4 @@
+import Control.Monad (foldM, (>=>))
 import Prelude hiding (lookup)
 
 data Rope a
@@ -35,14 +36,14 @@ lookup xs i = f xs (i + 1)
         j = getIndex l
     f _ _ = Nothing
 
-insert :: Rope a -> a -> Word -> Rope a
-insert Empty x _ = Leaf x
-insert xs@(Leaf _) x 0 = Node 2 (Leaf x) xs
-insert xs@(Leaf _) x 1 = Node 2 xs (Leaf x)
-insert xs@(Leaf _) _ _ = xs
+insert :: Rope a -> a -> Word -> Maybe (Rope a)
+insert Empty x _ = Just $ Leaf x
+insert xs@(Leaf _) x 0 = Just $ Node 2 (Leaf x) xs
+insert xs@(Leaf _) x 1 = Just $ Node 2 xs (Leaf x)
+insert (Leaf _) _ _ = Nothing
 insert (Node j l r) x i
-  | i < l' = Node j' (insert l x i) r
-  | otherwise = Node j' l (insert r x $ i - l')
+  | i < l' = insert l x i >>= \xs -> Just $ Node j' xs r
+  | otherwise = insert r x (i - l') >>= \xs -> Just $ Node j' l xs
   where
     j' = j + 1
     l' = getIndex l
@@ -50,7 +51,12 @@ insert (Node j l r) x i
 main :: IO ()
 main = do
   print xs
-  print $ lookup xs 0
-  mapM_ (print . toList . insert xs 'f') [0 .. 5]
+  maybe (return ()) (mapM_ print) $
+    mapM ((\i -> xs >>= \xs' -> insert xs' ' ' i) >=> Just . toList) ns
   where
-    xs = insert (mconcat $ map Leaf "abde") 'c' 2
+    xs =
+      foldM
+        (\xs' (x, i) -> insert xs' x i)
+        (mconcat $ map Leaf "dc")
+        [('a', 2), ('b', 2), ('e', 0), ('f', 0)]
+    ns = [0 .. 6]
