@@ -1,62 +1,116 @@
-import Control.Monad (foldM, (>=>))
-import Prelude hiding (lookup)
+{-# LANGUAGE OverloadedStrings #-}
 
-data Rope a
-  = Leaf a
-  | Node Word (Rope a) (Rope a)
+import Control.Monad ((<=<))
+import Data.Text (Text, length, splitAt)
+import Prelude hiding (concat, length, splitAt)
+
+data Rope
+  = Leaf Text
+  | Node Word Rope Rope
   deriving (Show)
 
-getIndex :: Rope a -> Word
-getIndex (Leaf _) = 1
-getIndex (Node i _ _) = i
+weight :: Rope -> Word
+weight (Leaf x) = fromIntegral $ length x
+weight (Node i _ _) = i
 
-toList :: Rope a -> [a]
-toList (Leaf x) = [x]
-toList (Node _ l r) = toList l ++ toList r
+concat :: Rope -> Rope -> Rope
+concat l r = Node (weight l + weight r) l r
 
-lookup :: Rope a -> Word -> Maybe a
-lookup (Leaf x) 0 = Just x
-lookup (Node _ l r) i'
-  | j <= i' = lookup r (i' - j)
-  | otherwise = lookup l i'
+toText :: Rope -> Text
+toText (Leaf x) = x
+toText (Node _ l r) = toText l <> toText r
+
+ping :: Rope -> Word -> Maybe Text
+ping xs@(Leaf x) i
+  | i < weight xs = Just x
+  | otherwise = Nothing
+ping (Node _ l r) i
+  | i < j = ping l i
+  | otherwise = ping r (i - j)
   where
-    j = getIndex l
-lookup _ _ = Nothing
+    j = weight l
 
-insert :: Rope a -> a -> Word -> Maybe (Rope a)
-insert xs@(Leaf _) x 0 = Just $ Node 2 (Leaf x) xs
-insert xs@(Leaf _) x 1 = Just $ Node 2 xs (Leaf x)
-insert (Leaf _) _ _ = Nothing
-insert (Node j l r) x i
-  | i < l' = insert l x i >>= \xs -> Just $ Node j' xs r
-  | otherwise = insert r x (i - l') >>= Just . Node j' l
+split :: Rope -> Word -> (Maybe Rope, Maybe Rope)
+split xs@(Leaf x) i
+  | i == j = (Just xs, Nothing)
+  | i < j = (Just $ Leaf l, Just $ Leaf r)
+  | otherwise = (Nothing, Nothing)
   where
-    j' = j + 1
-    l' = getIndex l
+    j = weight xs
+    (l, r) = splitAt (fromIntegral i) x
+split (Node _ l r) i
+  | i == j = (Just l, Just r)
+  | i < j =
+    case split l i of
+      (Just l', Just r') -> (Just l', Just $ concat r' r)
+      (Just l', Nothing) -> (Just l', Just r)
+      _ -> (Nothing, Nothing)
+  | otherwise =
+    case split r (i - j) of
+      (Just l', Just r') -> (Just $ concat l l', Just r')
+      (Just l', Nothing) -> (Just $ concat l l', Nothing)
+      _ -> (Nothing, Nothing)
+  where
+    j = weight l
 
-delete :: Rope a -> Word -> Maybe (Rope a)
-delete (Leaf _) _ = Nothing
-delete (Node _ (Leaf _) r) 0 = Just r
-delete (Node _ l (Leaf _)) i
-  | getIndex l == i = Just l
-delete (Node j l r) i
-  | i < l' = delete l i >>= \xs -> Just $ Node j' xs r
-  | otherwise = delete r (i - l') >>= Just . Node j' l
+insert :: Rope -> Word -> Text -> Maybe Rope
+insert _ _ "" = Nothing
+insert xs i x =
+  case split xs i of
+    (Just l, Just r) -> Just $ concat l $ concat (Leaf x) r
+    (Just l, Nothing) -> Just $ concat l (Leaf x)
+    _ -> Nothing
+
+delete :: Rope -> Word -> Word -> Maybe Rope
+delete xs i j
+  | j <= i = Nothing
+  | otherwise = do
+    r <- snd $ split xs j
+    l <- fst $ split xs i
+    Just $ concat l r
+
+slice :: Rope -> Word -> Word -> Maybe Rope
+slice xs i j
+  | j <= i = Nothing
+  | otherwise = do
+    l <- fst $ split xs j
+    r <- snd $ split l i
+    Just r
+
+balance :: Rope -> Maybe Rope
+balance x@(Leaf _) = Just x
+balance xs@(Node i _ _) = do
+  l' <- l >>= balance
+  r' <- r >>= balance
+  Just $ concat l' r'
   where
-    j' = j - 1
-    l' = getIndex l
+    n = i `div` 2
+    (l, r) = split xs n
+
+threshold :: Word
+threshold = 10
+
+compress :: Rope -> Maybe Rope
+compress x@(Leaf _) = Just x
+compress (Node i l r)
+  | i < threshold = Just $ Leaf $ toText l <> toText r
+  | otherwise = do
+    l' <- compress l
+    r' <- compress r
+    Just $ concat l' r'
 
 main :: IO ()
 main = do
   print xs
-  print' $ mapM ((\i -> xs >>= \xs' -> insert xs' '-' i) >=> toList') ns
-  print' $ mapM ((\i -> xs >>= \xs' -> delete xs' i) >=> toList') ns
+  print $ balance xs
+  print $ (compress <=< balance) xs
+  mapM_ (\i -> print (i, ping xs i)) [0 .. 15]
+  mapM_
+    (print . fmap toText)
+    [insert xs 10 " ! ", delete xs 8 11, slice xs 8 11]
   where
-    toList' = Just . toList
-    print' = maybe (return ()) (mapM_ print)
     xs =
-      foldM
-        (\xs' (x, i) -> insert xs' x i)
-        (Leaf 'd')
-        [('c', 0), ('b', 0), ('e', 3), ('a', 0), ('f', 5)]
-    ns = [0 .. 5]
+      foldl
+        (\xs' x -> concat xs' $ Leaf $ " " <> x)
+        (Leaf "foo")
+        ["bar", "baz", "qux"]
