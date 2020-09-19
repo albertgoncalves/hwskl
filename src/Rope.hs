@@ -1,141 +1,102 @@
-{-# LANGUAGE OverloadedStrings #-}
-
-import Control.Monad ((<=<))
-import Data.Text (Text, length, splitAt)
-import Prelude hiding (concat, length, splitAt)
+import Data.Maybe (fromMaybe)
+import Prelude hiding (concat)
 
 data Rope
-  = Leaf Text
-  | Node Word Rope Rope
-  deriving (Show)
+  = Leaf Char
+  | Node Int Rope Rope
+  deriving (Eq, Show)
 
-weight :: Rope -> Word
-weight (Leaf x) = fromIntegral $ length x
-weight (Node i _ _) = i
+weight :: Rope -> Int
+weight (Leaf _) = 1
+weight (Node n _ _) = n
 
 concat :: Rope -> Rope -> Rope
-concat l (Leaf "") = l
-concat (Leaf "") r = r
 concat l r = Node (weight l + weight r) l r
 
-toText :: Rope -> Text
-toText (Leaf x) = x
-toText (Node _ l r) = toText l <> toText r
+toString :: Rope -> String
+toString (Leaf x) = [x]
+toString (Node _ l r) = toString l ++ toString r
 
-ping :: Rope -> Word -> Maybe Text
-ping (Leaf "") _ = Nothing
-ping xs@(Leaf x) i
-  | i < weight xs = Just x
-  | otherwise = Nothing
+ping :: Rope -> Int -> Char
+ping (Leaf x) _ = x
 ping (Node _ l r) i
-  | i < j = ping l i
-  | otherwise = ping r (i - j)
+  | i < n = ping l i
+  | otherwise = ping r $ i - n
   where
-    j = weight l
+    n = weight l
 
-split :: Rope -> Word -> (Maybe Rope, Maybe Rope)
-split (Leaf "") _ = (Nothing, Nothing)
-split xs@(Leaf x) i
-  | i == k = (Just xs, Nothing)
-  | i < k = (Just $ Leaf l, Just $ Leaf r)
-  | otherwise = (Nothing, Nothing)
-  where
-    k = weight xs
-    (l, r) = splitAt (fromIntegral i) x
+push :: Rope -> Char -> Rope
+push t = concat t . Leaf
+
+split :: Rope -> Int -> (Maybe Rope, Maybe Rope)
+split t@(Leaf _) i
+  | i < 1 = (Nothing, Just t)
+  | otherwise = (Just t, Nothing)
 split (Node _ l r) i
-  | i == j = (Just l, Just r)
-  | i < j =
-    case split l i of
-      (Just l', Just r') -> (Just l', Just $ concat r' r)
-      (Just l', Nothing) -> (Just l', Just r)
-      _ -> (Nothing, Nothing)
-  | otherwise =
-    case split r (i - j) of
-      (Just l', Just r') -> (Just $ concat l l', Just r')
-      (Just l', Nothing) -> (Just $ concat l l', Nothing)
-      _ -> (Nothing, Nothing)
+  | i < n = case split l i of
+    (Nothing, Nothing) -> (Nothing, Nothing)
+    (Nothing, Just r') -> (Nothing, Just $ concat r' r)
+    (l', Just r') -> (l', Just $ concat r' r)
+    (l', Nothing) -> (l', Just r)
+  | otherwise = case split r (i - n) of
+    (Nothing, Nothing) -> (Nothing, Nothing)
+    (Just l', Nothing) -> (Just $ concat l l', Nothing)
+    (Just l', r') -> (Just $ concat l l', r')
+    (Nothing, r') -> (Just l, r')
   where
-    j = weight l
+    n = weight l
 
-insert :: Rope -> Word -> Text -> Maybe Rope
-insert _ _ "" = Nothing
-insert xs i x
-  | k < i = Nothing
-  | otherwise = case split xs i of
-    (Just l, Just r) -> Just $ concat l $ concat (Leaf x) r
-    (Just l, Nothing) -> Just $ concat l (Leaf x)
-    _ -> Nothing
+insert :: Rope -> Rope -> Int -> Rope
+insert t t' i = case split t i of
+  (Just l, Just r) -> concat l $ concat t' r
+  (Just l, Nothing) -> concat l t'
+  (Nothing, Just r) -> concat t' r
+  _ -> t'
+
+delete :: Rope -> Int -> Int -> Rope
+delete t a b = case split t i of
+  (Just l, Just r) -> maybe l (concat l) $ snd $ split r j
+  (Nothing, Just r) -> fromMaybe t $ snd $ split r j
+  (Just l, Nothing) -> l
+  _ -> t
   where
-    k = weight xs
+    (i, j) = if a < b then (a, b - a) else (b, a - b)
 
-delete :: Rope -> Word -> Word -> Maybe Rope
-delete xs i j
-  | ((i == 0) && (j == k)) || (k < j) || (j <= i) = Nothing
-  | otherwise = do
-    case split xs j of
-      (_, Just r) -> do
-        l <- fst $ split xs i
-        Just $ concat l r
-      (_, Nothing) -> fst $ split xs i
+slice :: Rope -> Int -> Int -> String
+slice t a b = maybe "" toString $ snd (split t i) >>= \r -> fst $ split r j
   where
-    k = weight xs
+    (i, j) = if a < b then (a, b - a) else (b, a - b)
 
-slice :: Rope -> Word -> Word -> Maybe Rope
-slice xs i j
-  | (k < j) || (j <= i) = Nothing
-  | (i == 0) && (k == j) = Just xs
-  | otherwise = fst (split xs j) >>= \l -> snd $ split l i
+rope :: String -> Maybe Rope
+rope [] = Nothing
+rope [x] = Just $ Leaf x
+rope xs = case (rope l, rope r) of
+  (Just l', Just r') -> Just $ concat l' r'
+  (Just l', Nothing) -> Just l'
+  (Nothing, Just r') -> Just r'
+  _ -> Nothing
   where
-    k = weight xs
+    (l, r) = splitAt (length xs `div` 2) xs
 
-balance :: Rope -> Maybe Rope
-balance (Leaf "") = Nothing
-balance x@(Leaf _) = Just x
-balance xs@(Node i _ _) =
-  case split xs n of
-    (Just l, Just r) ->
-      case (balance l, balance r) of
-        (Just l', Just r') -> Just $ concat l' r'
-        (Just l', Nothing) -> Just l'
-        _ -> Nothing
-    (Just l, Nothing) -> balance l
-    _ -> Nothing
-  where
-    n = i `div` 2
-
-threshold :: Word
-threshold = 10
-
-compress :: Rope -> Maybe Rope
-compress (Leaf "") = Nothing
-compress x@(Leaf _) = Just x
-compress (Node i l r)
-  | i < threshold = Just $ Leaf $ toText l <> toText r
-  | otherwise = case (compress l, compress r) of
-    (Just l', Just r') -> Just $ concat l' r'
-    (Just l', Nothing) -> Just l'
-    _ -> Nothing
+balance :: Rope -> Rope
+balance t@(Leaf _) = t
+balance t@(Node n _ _) = case split t $ n `div` 2 of
+  (Just l, Just r) -> concat (balance l) (balance r)
+  (Just l, Nothing) -> balance l
+  (Nothing, Just r) -> balance r
+  _ -> t
 
 main :: IO ()
 main = do
-  print xs
-  print $ balance xs
-  print $ (compress <=< balance) xs
-  mapM_ (\i -> print (i, ping xs i)) [0 .. 15]
-  mapM_
-    (print . fmap toText)
-    [ insert xs 10 " ! ",
-      slice xs 8 11,
-      slice xs 0 15,
-      slice xs 0 16,
-      delete xs 8 11,
-      delete xs 1 15,
-      delete xs 0 14,
-      delete xs 0 15
-    ]
+  print $ rope "abcde"
+  print t
+  print $ balance t
+  print $ Just t == rope "abcde"
+  print $ Just (balance t) == rope "abcde"
+  print' (ping t) [-1 .. 5]
+  print' (toString . insert t (concat (Leaf '-') (Leaf '-'))) [-1 .. 6]
+  print' (toString . delete t 3) [0 .. 5]
+  print' (slice t 3) [0 .. 5]
   where
-    xs =
-      foldl
-        (\xs' x -> concat xs' $ Leaf x)
-        (Leaf "foo")
-        [" bar", " baz", " qux"]
+    t = foldl push (Leaf 'a') "bcde"
+    print' f = mapM_ (print . f)
