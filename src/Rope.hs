@@ -93,32 +93,29 @@ slice t i j = maybe "" toString $ snd (split t i') >>= \r -> fst $ split r j'
 
 test :: [(String, Bool)] -> IO ()
 test =
-  ( \(results, labels) -> do
-      putStrLn results
-      if labels == ""
-        then return ()
-        else putStrLn labels
-  )
+  (\(s, s') -> putStrLn s >> if s' == "" then return () else putStrLn s')
     . mconcat
-    . map (\(label, bool) -> if bool then (".", "") else ("!", '\n' : label))
+    . map (\(s, b) -> if b then (".", "") else ("!", '\n' : s))
 
 main :: IO ()
 main = do
-  test
-    [ ("00", foldl push (Leaf 'a') "bcde" == t),
-      ("01", rope "abcde" /= Just t),
-      ("02", rope "abcde" == Just t'),
-      ("03", rope "abcde" == Just (balance (foldl push (Leaf 'a') "bcde"))),
-      ("04", (toString <$> rope "abcde") == Just "abcde"),
-      ("05", toString (foldl push (Leaf 'a') "bcde") == "abcde"),
-      ("06", map (ping t') [-1 .. 5] == "aabcdee"),
-      ("07", map (toString . insert t u) n == a),
-      ("08", map (toString . insert t' u) n == a),
-      ("09", map (toString . delete t 3) n == b),
-      ("10", map (toString . delete t' 3) n == b),
-      ("11", map (slice t 3) n == c),
-      ("12", map (slice t' 3) n == c)
-    ]
+  test $
+    zip
+      (show <$> [0 :: Int ..])
+      [ foldl push (Leaf 'a') "bcde" == t,
+        rope "abcde" /= Just t,
+        rope "abcde" == Just t',
+        rope "abcde" == Just (balance (foldl push (Leaf 'a') "bcde")),
+        (toString <$> rope "abcde") == Just "abcde",
+        toString (foldl push (Leaf 'a') "bcde") == "abcde",
+        map (ping t') [-1 .. 5] == "aabcdee",
+        map (toString . insert t u) n == a,
+        map (toString . insert t' u) n == a,
+        map (toString . delete t 3) n == b,
+        map (toString . delete t' 3) n == b,
+        map (slice t 3) n == c,
+        map (slice t' 3) n == c
+      ]
   where
     t =
       Node
