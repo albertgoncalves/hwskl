@@ -27,7 +27,6 @@ hsall () {
 export FLAGS=(
     -fdiagnostics-color=always
     -fprof-auto
-    --make
     -outputdir "$WD/build"
     -prof
     -rtsopts
@@ -45,6 +44,7 @@ runh () {
     handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
     pin=$PWD
     (
+        rm "$WD/build"/*
         cd "$WD/src" || return
         ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
         cd "$pin" || return
