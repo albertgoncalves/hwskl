@@ -49,7 +49,7 @@ split (Node _ l r) i
     (Nothing, Just r') -> (Nothing, Just $ concat r' r)
     (l', Just r') -> (l', Just $ concat r' r)
     (l', Nothing) -> (l', Just r)
-  | otherwise = case split r (i - n) of
+  | otherwise = case split r $ i - n of
     (Nothing, Nothing) -> (Nothing, Nothing)
     (Just l', Nothing) -> (Just $ concat l l', Nothing)
     (Just l', r') -> (Just $ concat l l', r')
@@ -75,7 +75,8 @@ insert t t' i = case split t i of
 indices :: Int -> Int -> (Int, Int)
 indices i j = if i < j then (i', j' - i') else (j', i' - j')
   where
-    (i', j') = (max i 0, max j 0)
+    i' = max i 0
+    j' = max j 0
 
 delete :: Rope -> Int -> Int -> Rope
 delete t i j = case split t i' of
@@ -103,18 +104,21 @@ main = do
     zip
       (show <$> [0 :: Int ..])
       [ foldl push (Leaf 'a') "bcde" == t,
+        t' /= t,
+        t' == balance t,
         rope "abcde" /= Just t,
         rope "abcde" == Just t',
-        rope "abcde" == Just (balance (foldl push (Leaf 'a') "bcde")),
+        rope "abcde" == Just (balance t),
         (toString <$> rope "abcde") == Just "abcde",
         toString (foldl push (Leaf 'a') "bcde") == "abcde",
+        map (ping t) [-1 .. 5] == "aabcdee",
         map (ping t') [-1 .. 5] == "aabcdee",
-        map (toString . insert t u) n == a,
-        map (toString . insert t' u) n == a,
-        map (toString . delete t 3) n == b,
-        map (toString . delete t' 3) n == b,
-        map (slice t 3) n == c,
-        map (slice t' 3) n == c
+        map (toString . insert t u) n == i,
+        map (toString . insert t' u) n == i,
+        map (toString . delete t 3) n == d,
+        map (toString . delete t' 3) n == d,
+        map (slice t 3) n == s,
+        map (slice t' 3) n == s
       ]
   where
     t =
@@ -129,7 +133,7 @@ main = do
         (Node 3 (Leaf 'c') (Node 2 (Leaf 'd') (Leaf 'e')))
     u = Node 2 (Leaf '-') (Leaf '-')
     n = [-1 .. 6]
-    a =
+    i =
       [ "--abcde",
         "--abcde",
         "a--bcde",
@@ -139,7 +143,7 @@ main = do
         "abcde--",
         "abcde--"
       ]
-    b =
+    d =
       [ "de",
         "de",
         "ade",
@@ -149,7 +153,7 @@ main = do
         "abc",
         "abc"
       ]
-    c =
+    s =
       [ "abc",
         "abc",
         "bc",
