@@ -46,12 +46,10 @@ split t@(Leaf _) i
 split (Node _ l r) i
   | i < n = case split l i of
     (Nothing, Nothing) -> (Nothing, Nothing)
-    (Nothing, Just r') -> (Nothing, Just $ concat r' r)
     (l', Just r') -> (l', Just $ concat r' r)
     (l', Nothing) -> (l', Just r)
   | otherwise = case split r $ i - n of
     (Nothing, Nothing) -> (Nothing, Nothing)
-    (Just l', Nothing) -> (Just $ concat l l', Nothing)
     (Just l', r') -> (Just $ concat l l', r')
     (Nothing, r') -> (Just l, r')
   where
