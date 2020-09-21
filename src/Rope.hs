@@ -99,7 +99,7 @@ test =
     . map (\(s, b) -> if b then (".", "") else ("!", '\n' : s))
 
 main :: IO ()
-main = do
+main =
   test $
     zip
       (show <$> [0 :: Int ..])
@@ -111,8 +111,8 @@ main = do
         rope "abcde" == Just (balance t),
         (toString <$> rope "abcde") == Just "abcde",
         toString (foldl push (Leaf 'a') "bcde") == "abcde",
-        map (ping t) [-1 .. 5] == "aabcdee",
-        map (ping t') [-1 .. 5] == "aabcdee",
+        map (ping t) n == "aabcdeee",
+        map (ping t') n == "aabcdeee",
         map (toString . insert t u) n == i,
         map (toString . insert t' u) n == i,
         map (toString . delete t 3) n == d,
@@ -143,23 +143,5 @@ main = do
         "abcde--",
         "abcde--"
       ]
-    d =
-      [ "de",
-        "de",
-        "ade",
-        "abde",
-        "abcde",
-        "abce",
-        "abc",
-        "abc"
-      ]
-    s =
-      [ "abc",
-        "abc",
-        "bc",
-        "c",
-        "",
-        "d",
-        "de",
-        "de"
-      ]
+    d = ["de", "de", "ade", "abde", "abcde", "abce", "abc", "abc"]
+    s = ["abc", "abc", "bc", "c", "", "d", "de", "de"]
