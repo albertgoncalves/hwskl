@@ -1,8 +1,6 @@
 import Data.Set (Set, empty, insert, member)
 
-newtype Pos = Pos
-  { getPos :: Word
-  }
+newtype Pos = Pos {getPos :: Word}
   deriving (Eq, Ord, Show)
 
 move :: Pos -> [Pos]

@@ -2,14 +2,10 @@ import Data.List (foldl')
 import Data.Map.Strict (Map, empty, insert, lookup)
 import Prelude hiding (lookup)
 
-newtype Pos = Pos
-  { getPos :: Word
-  }
+newtype Pos = Pos {getPos :: Word}
   deriving (Eq, Ord, Show)
 
-newtype Step = Step
-  { getStep :: Word
-  }
+newtype Step = Step {getStep :: Word}
   deriving (Eq, Ord, Show)
 
 move :: Pos -> [Pos]
