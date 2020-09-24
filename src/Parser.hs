@@ -46,4 +46,4 @@ end :: Parser ()
 end = Parser $ \s -> if null s then pure (s, ()) else empty
 
 main :: IO ()
-main = print $ runParser (expr <* end) "(1 + (2 - 3))"
+main = mapM_ (print . snd) $ runParser (expr <* end) "(1 + (2 - 3))"
