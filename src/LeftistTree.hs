@@ -56,6 +56,4 @@ instance Heap Int where
   cmp = (<)
 
 main :: IO ()
-main = do
-  print $ unfoldr pop $ fromList [5, 3, 8, 1, -3, 6, 7, 0 :: Int]
-  print $ fromList [2, 5, 3, 8, 1 :: Int]
+main = print $ unfoldr pop $ fromList [5, 3, 8, 1, -3, 6, 7, 0 :: Int]
