@@ -42,12 +42,12 @@ export FLAGS=(
 
 runh () {
     handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
-    pin=$PWD
+    pwd_=$PWD
     (
         rm "$WD/build"/*
         cd "$WD/src" || return
         ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
-        cd "$pin" || return
+        cd "$pwd_" || return
         if [ -z "$2" ]; then
             "$WD/bin/$handle"
         elif [ "$2" == "profile" ]; then
