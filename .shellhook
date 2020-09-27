@@ -44,7 +44,9 @@ runh () {
     handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
     pwd_=$PWD
     (
-        rm "$WD/build"/*
+        if [ "$(ls -A "$WD/build")" ]; then
+            rm "$WD/build"/*
+        fi
         cd "$WD/src" || return
         ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
         cd "$pwd_" || return
