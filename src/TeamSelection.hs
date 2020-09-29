@@ -11,4 +11,4 @@ solve ([_, k] : a : b : _) =
 solve _ = undefined
 
 main :: IO ()
-main = interact (show . solve . map (map read . words) . lines)
+main = interact $ show . solve . map (map read . words) . lines
