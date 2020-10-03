@@ -1,27 +1,27 @@
 import Data.Map.Strict (Map, empty, insert, lookup, size)
 import Prelude hiding (lookup)
 
-distance ::
-  Map (String, String) Int ->
-  String ->
-  String ->
-  (Map (String, String) Int, Int)
-distance m as@[] bs = case lookup (as, bs) m of
-  Just x -> (m, x)
-  Nothing -> let x = length bs in (insert (as, bs) x m, x)
-distance m as bs@[] = case lookup (as, bs) m of
-  Just x -> (m, x)
-  Nothing -> let x = length as in (insert (as, bs) x m, x)
-distance m as'@(a : as) bs'@(b : bs) = case lookup (as', bs') m of
-  Just x -> (m, x)
-  Nothing -> (insert (as', bs') x m3, x)
-    where
-      (m1, delete) = distance m as' bs
-      (m2, insert') = distance m1 as bs'
-      (m3, replace) = distance m2 as bs
-      x = minimum [delete + 1, insert' + 1, replace + if a /= b then 1 else 0]
+type Memo = Map (String, String) Int
 
-test :: Map (String, String) Int -> String -> String -> Int -> (Bool, Int)
+distance :: Memo -> String -> String -> (Memo, Int)
+distance m as bs = case lookup (as, bs) m of
+  Just x -> (m, x)
+  Nothing -> (insert (as, bs) x m', x)
+    where
+      (m', x) = case (as, bs) of
+        ([], _) -> (m, length bs)
+        (_, []) -> (m, length as)
+        (a : as', b : bs') ->
+          if a == b
+            then (m0, x0)
+            else
+              let (m1, x1) = distance m0 as bs'
+               in let (m2, x2) = distance m1 as' bs
+                   in (m2, 1 + minimum [x0, x1, x2])
+          where
+            (m0, x0) = distance m as' bs'
+
+test :: Memo -> String -> String -> Int -> (Bool, Int)
 test m a b x = (x == x', size m')
   where
     (m', x') = distance m a b
@@ -37,6 +37,7 @@ main =
       test empty "gumbo" "gambol" 2,
       test empty "book" "back" 2,
       test empty "edward" "edwin" 3,
+      test empty "what is a sentence" "this is another thing" 13,
       test
         empty
         "the quick brown fox jumps over the lazy dog"
