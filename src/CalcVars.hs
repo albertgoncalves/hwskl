@@ -48,9 +48,10 @@ withVars xs = ($ fromList xs)
 main :: IO ()
 main = do
   print (add (lit 3) (var "x") :: VarExprT)
-  print $ withVars [("x", 6)] $ add (lit 3) (var "x")
-  print $ withVars [("x", 6)] $ mul (lit 3) (var "x")
-  print $ withVars [("x", 6)] $ add (lit 3) (var "y")
-  print $
-    withVars [("x", 6), ("y", 3)] $
-      mul (var "x") (add (var "y") (var "x"))
+  mapM_
+    (print . uncurry withVars)
+    [ ([("x", 6)], add (lit 3) (var "x")),
+      ([("x", 6)], mul (lit 3) (var "x")),
+      ([("x", 6)], add (lit 3) (var "y")),
+      ([("x", 6), ("y", 3)], mul (var "x") (add (var "y") (var "x")))
+    ]
