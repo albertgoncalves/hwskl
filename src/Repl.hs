@@ -1,3 +1,4 @@
+import Data.Functor ((<&>))
 import System.IO (hFlush, stdout)
 import Text.Read (readMaybe)
 
@@ -32,7 +33,7 @@ loop buffer = do
       putStr "=>\n\n"
       loop ""
     "insert" -> do
-      putStr " . "
+      putStr " @ "
       flush
       i <- getLine
       maybe
@@ -40,7 +41,7 @@ loop buffer = do
         ( \i' -> do
             putStr " . "
             flush
-            buffer' <- getLine >>= (return . insert buffer i')
+            buffer' <- getLine <&> insert buffer i'
             printBuffer buffer'
             loop buffer'
         )
