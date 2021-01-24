@@ -16,8 +16,8 @@ distance m as bs = case lookup (as, bs) m of
             then (m0, x0)
             else
               let (m1, x1) = distance m0 as bs'
-               in let (m2, x2) = distance m1 as' bs
-                   in (m2, 1 + minimum [x0, x1, x2])
+                  (m2, x2) = distance m1 as' bs
+               in (m2, 1 + minimum [x0, x1, x2])
           where
             (m0, x0) = distance m as' bs'
 
