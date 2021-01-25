@@ -8,8 +8,8 @@ dpList xs = 1 : map f (tail xs)
     f x =
       sum $
         map snd $
-          takeWhile (\(x', _) -> x' < x) $
-            dropWhile (\(x', _) -> 3 < (x - x')) $
+          takeWhile ((< x) . fst) $
+            dropWhile ((3 <) . (x -) . fst) $
               zip xs $ dpList xs
 
 dpArray :: Array Int Int -> Array Int Int
@@ -18,7 +18,7 @@ dpArray xs = listArray (bounds xs) (1 : map f [1 ..])
     f i =
       sum
         . map (dpArray xs !)
-        . takeWhile (\j -> xs ! i - xs ! j <= 3)
+        . takeWhile (\j -> (xs ! i) - (xs ! j) <= 3)
         $ [i - 1, i - 2 .. 0]
 
 main :: IO ()
