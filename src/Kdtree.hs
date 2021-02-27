@@ -27,13 +27,13 @@ makeTree :: Point a => [a] -> Tree a
 makeTree = f 0
   where
     f _ [] = Leaf
-    f dim xs@(x : _) = Node dim x'' (f dim' l) (f dim' r)
+    f dim xs@(x : _) = Node dim x' (f dim' l') (f dim' r')
       where
         dim' = next dim x
-        (l, x'', r) =
+        (l', x', r') =
           case splitAt (length xs `div` 2) (sortBy (cmpOn dim) xs) of
-            (l', x' : r') -> (l', x', r')
-            ([x'], []) -> ([], x', [])
+            (l, x'' : r) -> (l, x'', r)
+            ([x''], []) -> ([], x'', [])
             _ -> undefined
 
 withinRadius :: Point a => Tree a -> a -> Float -> (Sum Int, [a])
