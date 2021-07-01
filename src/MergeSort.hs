@@ -1,7 +1,7 @@
 split :: [a] -> ([a], [a])
 split [] = ([], [])
 split [x] = ([x], [])
-split (l:r:xs) = (l:ls, r:rs)
+split (l : r : xs) = (l : ls, r : rs)
   where
     (ls, rs) = split xs
 
