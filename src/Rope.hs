@@ -28,10 +28,10 @@ ping (Node _ l r) i
 push :: Rope -> Char -> Rope
 push t = concat t . Leaf
 
-rope :: String -> Maybe Rope
-rope [] = Nothing
-rope [x] = Just $ Leaf x
-rope xs = case (rope l, rope r) of
+toRope :: String -> Maybe Rope
+toRope [] = Nothing
+toRope [x] = Just $ Leaf x
+toRope xs = case (toRope l, toRope r) of
   (Just l', Just r') -> Just $ concat l' r'
   (Just l', Nothing) -> Just l'
   (Nothing, Just r') -> Just r'
@@ -90,12 +90,6 @@ slice t i j = maybe "" toString $ snd (split t i') >>= \r -> fst $ split r j'
   where
     (i', j') = indices i j
 
-test :: [(String, Bool)] -> IO ()
-test =
-  (\(s, s') -> putStrLn s >> if s' == "" then return () else putStrLn s')
-    . mconcat
-    . map (\(s, b) -> if b then (".", "") else ("!", '\n' : s))
-
 main :: IO ()
 main =
   test $
@@ -104,10 +98,10 @@ main =
       [ foldl push (Leaf 'a') "bcde" == t,
         t' /= t,
         t' == balance t,
-        rope "abcde" /= Just t,
-        rope "abcde" == Just t',
-        rope "abcde" == Just (balance t),
-        (toString <$> rope "abcde") == Just "abcde",
+        toRope "abcde" /= Just t,
+        toRope "abcde" == Just t',
+        toRope "abcde" == Just (balance t),
+        (toString <$> toRope "abcde") == Just "abcde",
         toString (foldl push (Leaf 'a') "bcde") == "abcde",
         map (ping t) n == "aabcdeee",
         map (ping t') n == "aabcdeee",
@@ -119,6 +113,13 @@ main =
         map (slice t' 3) n == s
       ]
   where
+    test :: [(String, Bool)] -> IO ()
+    test =
+      ( \(s', s'') ->
+          putStrLn s' >> if s'' == "" then return () else putStrLn s''
+      )
+        . mconcat
+        . map (\(s', b) -> if b then (".", "") else ("!", '\n' : s'))
     t =
       Node
         5
