@@ -25,19 +25,27 @@ hsall () {
 }
 
 export FLAGS=(
-    -fdiagnostics-color=always
-    -fprof-auto
-    -outputdir "$WD/build"
-    -prof
-    -rtsopts
+    -dynamic
+    "-fdiagnostics-color=always"
+    -funbox-strict-fields
+    "-optl -fuse-ld=lld"
+    "-outputdir $WD/build"
+    "-pgma clang"
+    "-pgmc clang"
+    "-pgml clang"
+    "-pgmP clang"
     -Wall
     -Wcompat
     -Werror
+    -Widentities
     -Wincomplete-record-updates
     -Wincomplete-uni-patterns
     -Wmissing-export-lists
+    -Wmonomorphism-restriction
     -Wno-unused-top-binds
     -Wpartial-fields
+    -Wunused-packages
+    -Wunused-type-patterns
 )
 
 runh () {
@@ -50,11 +58,7 @@ runh () {
         cd "$WD/src" || return
         ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
         cd "$pwd_" || return
-        if [ -z "$2" ]; then
-            "$WD/bin/$handle"
-        elif [ "$2" == "profile" ]; then
-            "$WD/bin/$handle" +RTS -pa -RTS
-        fi
+        "$WD/bin/$handle"
     )
 }
 
