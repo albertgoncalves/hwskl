@@ -131,7 +131,7 @@ main =
         (Node 2 (Leaf 'a') (Leaf 'b'))
         (Node 3 (Leaf 'c') (Node 2 (Leaf 'd') (Leaf 'e')))
     u = Node 2 (Leaf '-') (Leaf '-')
-    n = [-1 .. 6]
+    n = [-1 .. 6] :: [Int]
     i =
       [ "--abcde",
         "--abcde",

@@ -21,7 +21,7 @@ showTree offset (Node h l x r) =
 instance (Show a) => Show (Tree a) where
   show = (pad n ++) . showTree n
     where
-      n = 0
+      n = 0 :: Int
 
 height :: Tree a -> Int
 height Leaf = -1

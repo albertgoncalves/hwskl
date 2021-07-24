@@ -47,7 +47,7 @@ withinRadius (Node dim split l r) point radius =
     overlap = abs (diffOn dim point split) < radius
     l' = withinRadius l point radius
     r' = withinRadius r point radius
-    x = (1, [split | dist point split <= radius])
+    x = (1 :: Sum Int, [split | dist point split <= radius])
 
 data Vec2 = Vec2 Float Float
   deriving (Show)

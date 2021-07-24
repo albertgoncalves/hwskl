@@ -49,7 +49,7 @@ main = do
         putStrLn "Trying again!"
         threadDelay 1000
   where
-    a = 10000
-    b = 4000
-    n = 2000
+    a = 10000 :: Int
+    b = 4000 :: Int
+    n = 2000 :: Int
     m = a - n

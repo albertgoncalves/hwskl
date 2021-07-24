@@ -57,6 +57,7 @@ num :: Parser Int
 num =
   maybe id (const negate) <$> optional (char '-') <*> (toInt' <$> some digit)
   where
+    toInt' :: [Int] -> Int
     toInt' = foldl' ((+) . (* 10)) 0
 
 {- NOTE: Parse a single white space character. -}
