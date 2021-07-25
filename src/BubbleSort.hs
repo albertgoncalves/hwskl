@@ -25,13 +25,16 @@ bubbleSort xs = do
 
 main :: IO ()
 main = do
-  print xs
-  print xs'
+  print items
+  print sortedItems
   where
-    xs = [8, 6, 4, 10, 1 :: Int]
-    n = length xs - 1
-    xs' = elems $
+    items = [8.0, 6.0, 4.0, 10.0, 1.0 :: Float]
+    sortedItems = elems $
       runSTUArray $ do
-        xs'' <- (newListArray (0, n) xs :: ST s (STUArray s Int Int))
-        bubbleSort xs''
-        return xs''
+        xs <-
+          newListArray
+            (0, length items - 1)
+            items ::
+            ST s (STUArray s Int Float)
+        bubbleSort xs
+        return xs
