@@ -26,5 +26,5 @@ main = do
   print $ last $ dpList xs
   print $ (! n) $ dpArray $ listArray (0, n) xs
   where
-    xs = sort $ 0 : 22 : [16, 10, 15, 5, 1, 11, 7, 19, 6, 12, 4 :: Int]
+    xs = sort [0, 22, 16, 10, 15, 5, 1, 11, 7, 19, 6, 12, 4 :: Int]
     n = length xs - 1
