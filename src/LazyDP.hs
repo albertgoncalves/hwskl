@@ -1,7 +1,9 @@
 import Data.Array (Array, bounds, listArray, (!))
 import Data.List (sort)
 
--- NOTE: See `https://www.youtube.com/watch?v=LjrCckaHjB0`.
+-- NOTE: See `https://adventofcode.com/2020/day/10`.
+-- NOTE: See `https://www.youtube.com/watch?v=LjrCckaHjB0&lc=UgyTL_x6MXoIItvsuUB4AaABAg`.
+
 dpList :: [Int] -> [Int]
 dpList xs = 1 : map f (tail xs)
   where
@@ -23,8 +25,11 @@ dpArray xs = listArray (bounds xs) (1 : map f [1 ..])
 
 main :: IO ()
 main = do
-  print $ last $ dpList xs
-  print $ (! n) $ dpArray $ listArray (0, n) xs
+  mapM_
+    (\f -> print $ f $ sort $ 0 : maximum xs + 3 : xs)
+    [ last . dpList,
+      (! n) . dpArray . listArray (0, n)
+    ]
   where
-    xs = sort [0, 22, 16, 10, 15, 5, 1, 11, 7, 19, 6, 12, 4 :: Int]
-    n = length xs - 1
+    xs = [16, 10, 15, 5, 1, 11, 7, 19, 6, 12, 4 :: Int]
+    n = (length xs + 2) - 1
