@@ -1,4 +1,4 @@
-import Data.Array (Array, elems, listArray, (!))
+import Data.Array (Array, array, elems, listArray, (!))
 
 distance :: String -> String -> Int
 distance a b
@@ -12,7 +12,10 @@ distance a b
     b' = listArray (0, m - 1) b
 
     loop :: Array (Int, Int) Int
-    loop = listArray ((0, 0), (n, m)) $ [f i j | i <- [0 .. n], j <- [0 .. m]]
+    loop =
+      array
+        ((0, 0), (n, m))
+        [((i, j), f i j) | i <- [0 .. n], j <- [0 .. m]]
 
     f :: Int -> Int -> Int
     f i 0 = i
@@ -42,4 +45,4 @@ main =
     ]
   where
     test :: String -> String -> Int -> Bool
-    test a b x = x == distance a b
+    test a b x = distance a b == x
