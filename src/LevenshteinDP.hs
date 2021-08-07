@@ -1,7 +1,10 @@
 import Data.Array (Array, elems, listArray, (!))
 
 distance :: String -> String -> Int
-distance a b = last $ elems loop
+distance a b
+  | n == 0 = m
+  | m == 0 = n
+  | otherwise = last $ elems loop
   where
     n = length a
     m = length b
@@ -17,14 +20,14 @@ distance a b = last $ elems loop
     f i j
       | (a' ! (i - 1)) == (b' ! (j - 1)) = loop ! (i - 1, j - 1)
       | otherwise =
-        minimum [loop ! (i, j - 1), loop ! (i - 1, j), loop ! (i - 1, j - 1)]
-          + 1
+        minimum (map (loop !) [(i, j - 1), (i - 1, j), (i - 1, j - 1)]) + 1
 
 main :: IO ()
 main =
   mapM_
     print
     [ test "foobar" "" 6,
+      test "" "foobar" 6,
       test "sitting" "kitten" 3,
       test "flaw" "lawn" 2,
       test "saturday" "sunday" 3,
