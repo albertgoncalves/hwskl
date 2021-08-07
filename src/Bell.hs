@@ -8,14 +8,12 @@ bell n = loop ! (n, 0)
   where
     loop :: Array (Int, Int) Int
     loop =
-      array ((0, 0), (n + 1, n + 1)) $
-        ((0, 0), 1) :
-          [ ((i, j), f i j)
-            | i <- [1 .. n],
-              j <- [0 .. i]
-          ]
+      array
+        ((0, 0), (n + 1, n + 1))
+        [((i, j), f i j) | i <- [0 .. n], j <- [0 .. i]]
 
     f :: Int -> Int -> Int
+    f 0 0 = 1
     f i 0 = loop ! (i - 1, i - 1)
     f i j = (loop ! (i - 1, j - 1)) + (loop ! (i, j - 1))
 
