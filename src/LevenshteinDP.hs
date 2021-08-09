@@ -4,15 +4,15 @@ distance :: String -> String -> Int
 distance a b
   | n == 0 = m
   | m == 0 = n
-  | otherwise = last $ elems loop
+  | otherwise = last $ elems table
   where
     n = length a
     m = length b
     a' = listArray (0, n - 1) a
     b' = listArray (0, m - 1) b
 
-    loop :: Array (Int, Int) Int
-    loop =
+    table :: Array (Int, Int) Int
+    table =
       array
         ((0, 0), (n, m))
         [((i, j), f i j) | i <- [0 .. n], j <- [0 .. m]]
@@ -21,9 +21,9 @@ distance a b
     f i 0 = i
     f 0 j = j
     f i j
-      | (a' ! (i - 1)) == (b' ! (j - 1)) = loop ! (i - 1, j - 1)
+      | (a' ! (i - 1)) == (b' ! (j - 1)) = table ! (i - 1, j - 1)
       | otherwise =
-        minimum (map (loop !) [(i, j - 1), (i - 1, j), (i - 1, j - 1)]) + 1
+        minimum (map (table !) [(i, j - 1), (i - 1, j), (i - 1, j - 1)]) + 1
 
 main :: IO ()
 main =

@@ -17,11 +17,13 @@ fibs :: [Int]
 fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
 
 fibsArray :: Int -> Array Int Int
-fibsArray n = loop
+fibsArray n = table
   where
-    loop :: Array Int Int
-    loop = listArray (0, n - 1) $ 0 : 1 : map f [2 ..]
-    f i = (loop ! (i - 2)) + (loop ! (i - 1))
+    table :: Array Int Int
+    table = listArray (0, n - 1) $ 0 : 1 : map f [2 ..]
+
+    f :: Int -> Int
+    f i = (table ! (i - 2)) + (table ! (i - 1))
 
 main :: IO ()
 main = do
