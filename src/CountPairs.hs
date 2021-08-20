@@ -17,7 +17,7 @@ tabular n = table ! n
 bruteForce :: Word64 -> Word64
 bruteForce n
   | n <= 2 = n
-  | otherwise = (bruteForce $ n - 1) + ((n - 1) * (bruteForce $ n - 2))
+  | otherwise = bruteForce (n - 1) + ((n - 1) * bruteForce (n - 2))
 
 main :: IO ()
 main = mapM_ (\f -> print $ f 32) [tabular, bruteForce]
