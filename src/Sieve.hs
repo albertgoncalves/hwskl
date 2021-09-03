@@ -1,6 +1,9 @@
-sieve :: [Word] -> [Word]
+sieve :: [Int] -> [Int]
+sieve (x : xs) = x : sieve (filter ((/= 0) . (`mod` x)) xs)
 sieve [] = []
-sieve (x : xs) = x : filter ((0 /=) . (`mod` x)) (sieve xs)
+
+primes :: [Int]
+primes = sieve [2 ..]
 
 main :: IO ()
-main = print $ take 16 $ sieve [2 :: Word ..]
+main = print $ take 16 primes
