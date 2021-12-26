@@ -24,6 +24,11 @@ hsall () {
     '
 }
 
+lint () {
+    hlint "$1"
+    ormolu -m inplace "$1"
+}
+
 export FLAGS=(
     -dynamic
     "-fdiagnostics-color=always"
@@ -66,7 +71,8 @@ checkh () {
     )
 }
 
-export -f hsall
-export -f runh
 export -f checkh
+export -f hsall
+export -f lint
+export -f runh
 alias ormolu="ormolu -m inplace"
