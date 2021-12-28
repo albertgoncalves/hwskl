@@ -23,11 +23,12 @@ type Memo = Map ([Int], [Int]) (Maybe Int)
  -       > 163
  -}
 
-combinations :: Int -> [a] -> [[a]]
-combinations n = filter ((== n) . length) . subsequences
-
 bruteForce :: [Int] -> [Int] -> Int
-bruteForce bs = maximum . map (sum . zipWith (*) bs) . combinations k
+bruteForce bs =
+  maximum
+    . map (sum . zipWith (*) bs)
+    . filter ((== k) . length)
+    . subsequences
   where
     k = length bs
 
@@ -51,14 +52,12 @@ recursive m0 as'@(a : as) bs'@(b : bs)
   where
     k = (as', bs')
 
-parse :: String -> ([Int], [Int])
-parse = f . map (map read . words) . lines
-  where
-    f (_ : as : bs : _) = (as, bs)
-    f _ = undefined
-
-inject :: [Int] -> [Int] -> (Int, Int)
-inject as bs = (bruteForce bs as, snd $ recursive empty as bs)
-
 main :: IO ()
-main = interact $ show . uncurry inject . parse
+main =
+  interact $
+    show
+      . (\(as, bs) -> (bruteForce bs as, snd $ recursive empty as bs))
+      . (!! 1)
+      . (\xs -> zip xs $ tail xs)
+      . map (map read . words)
+      . lines
