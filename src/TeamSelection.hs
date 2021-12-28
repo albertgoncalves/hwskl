@@ -4,7 +4,7 @@ import Data.List (subsequences)
 import Data.Map.Strict (Map, empty, insert, lookup)
 import Prelude hiding (lookup)
 
-type Memo = Map ([Int], [Int]) Int
+type Memo = Map ([Int], [Int]) (Maybe Int)
 
 {- NOTE: See `https://codeforces.com/gym/102646/problem/D`. -}
 {- NOTE: $ 5 4
@@ -31,19 +31,25 @@ bruteForce bs = maximum . map (sum . zipWith (*) bs) . combinations k
   where
     k = length bs
 
-recursive :: Memo -> [Int] -> [Int] -> (Memo, Int)
-recursive m [] _ = (m, 0)
-recursive m _ [] = (m, 0)
+recursive :: Memo -> [Int] -> [Int] -> (Memo, Maybe Int)
+recursive m _ [] = (m, Just 0)
+recursive m [] _ = (m, Nothing)
 recursive m0 as'@(a : as) bs'@(b : bs)
-  | length as' < length bs' = (m0, 0)
+  | length as' < length bs' = (m0, Nothing)
   | otherwise =
-    case lookup (as', bs') m0 of
+    case lookup k m0 of
       Just x -> (m0, x)
       Nothing ->
         let (m1, x1) = recursive m0 as bs'
-            (m2, x2) = ((a * b) +) <$> recursive m1 as bs
-            x = max x1 x2
-         in (insert (as', bs') x m2, x)
+            (m2, x2) = fmap ((a * b) +) <$> recursive m1 as bs
+            x =
+              case (x1, x2) of
+                (Just x1', Just x2') -> Just $ max x1' x2'
+                (x'@(Just _), Nothing) -> x'
+                (Nothing, x') -> x'
+         in (insert k x m2, x)
+  where
+    k = (as', bs')
 
 parse :: String -> ([Int], [Int])
 parse = f . map (map read . words) . lines
