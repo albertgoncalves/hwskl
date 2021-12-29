@@ -32,6 +32,20 @@ bruteForce bs =
   where
     k = length bs
 
+recNaive :: [Int] -> [Int] -> Maybe Int
+recNaive _ [] = Just 0
+recNaive [] _ = Nothing
+recNaive as'@(a : as) bs'@(b : bs)
+  | length as' < length bs' = Nothing
+  | otherwise =
+    case (x1, x2) of
+      (Just x1', Just x2') -> Just $ max x1' x2'
+      (x'@(Just _), Nothing) -> x'
+      (Nothing, x') -> x'
+  where
+    x1 = recNaive as bs'
+    x2 = ((a * b) +) <$> recNaive as bs
+
 recMemo :: Memo -> [Int] -> [Int] -> (Memo, Maybe Int)
 recMemo m _ [] = (m, Just 0)
 recMemo m [] _ = (m, Nothing)
@@ -57,7 +71,7 @@ main =
   interact $
     show
       . ( \(as, bs) ->
-            (bruteForce bs as, snd $ recMemo empty as bs)
+            (bruteForce bs as, recNaive as bs, snd $ recMemo empty as bs)
         )
       . (!! 1)
       . (\xs -> zip xs $ tail xs)
