@@ -32,17 +32,17 @@ bruteForce bs =
   where
     k = length bs
 
-recursive :: Memo -> [Int] -> [Int] -> (Memo, Maybe Int)
-recursive m _ [] = (m, Just 0)
-recursive m [] _ = (m, Nothing)
-recursive m0 as'@(a : as) bs'@(b : bs)
+recMemo :: Memo -> [Int] -> [Int] -> (Memo, Maybe Int)
+recMemo m _ [] = (m, Just 0)
+recMemo m [] _ = (m, Nothing)
+recMemo m0 as'@(a : as) bs'@(b : bs)
   | length as' < length bs' = (m0, Nothing)
   | otherwise =
     case lookup k m0 of
       Just x -> (m0, x)
       Nothing ->
-        let (m1, x1) = recursive m0 as bs'
-            (m2, x2) = fmap ((a * b) +) <$> recursive m1 as bs
+        let (m1, x1) = recMemo m0 as bs'
+            (m2, x2) = fmap ((a * b) +) <$> recMemo m1 as bs
             x =
               case (x1, x2) of
                 (Just x1', Just x2') -> Just $ max x1' x2'
@@ -56,7 +56,9 @@ main :: IO ()
 main =
   interact $
     show
-      . (\(as, bs) -> (bruteForce bs as, snd $ recursive empty as bs))
+      . ( \(as, bs) ->
+            (bruteForce bs as, snd $ recMemo empty as bs)
+        )
       . (!! 1)
       . (\xs -> zip xs $ tail xs)
       . map (map read . words)
