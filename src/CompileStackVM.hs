@@ -32,6 +32,10 @@ data AstExpr
 data AstStmt
   = AstStmtAssign String AstExpr
 
+data AstFunc = AstFunc String [String] [AstStmt]
+
+data CompiledFunc = CompiledFunc String [Inst]
+
 data Compiler = Compiler [String] Int [Inst]
 
 instance Semigroup Compiler where
@@ -68,8 +72,16 @@ compileStmt (AstStmtAssign v x) vs0 n0 =
 step :: Compiler -> AstStmt -> Compiler
 step c@(Compiler vs0 n0 _) x = c <> compileStmt x vs0 n0
 
-compile :: [AstStmt] -> [Inst]
-compile = (\(Compiler _ _ xs) -> xs ++ [InstHalt]) . foldl' step mempty
+compileStmts :: [String] -> [AstStmt] -> [Inst]
+compileStmts vs =
+  (\(Compiler _ _ xs) -> xs ++ [InstHalt]) . foldl' step (Compiler vs 0 [])
+
+compileFunc :: AstFunc -> CompiledFunc
+compileFunc (AstFunc v vs xs) = CompiledFunc v $ compileStmts vs xs
+
+linkFuncs :: [CompiledFunc] -> [Inst]
+linkFuncs [CompiledFunc "main" xs] = xs
+linkFuncs _ = undefined
 
 store :: Int -> a -> [a] -> [a]
 store _ _ [] = undefined
@@ -116,23 +128,24 @@ run [] = undefined
 run xs = eval (listArray (0, length xs - 1) xs) 0 []
 
 main :: IO ()
-main =
-  print $
-    reverse $
-      run $
-        compile
-          [ AstStmtAssign "w" (AstExprInt (-10)),
-            AstStmtAssign "y" (AstExprInt 9),
-            AstStmtAssign "x" (AstExprInt 3),
-            AstStmtAssign "w" (AstExprInt 1),
-            AstStmtAssign
-              "y"
-              (AstExprBinOp BinOpSub (AstExprVar "w") (AstExprInt 8)),
-            AstStmtAssign "z" (AstExprInt 4),
-            AstStmtAssign
-              "x"
-              (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "z")),
-            AstStmtAssign
-              "u"
-              (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y"))
-          ]
+main = print $ reverse $ run $ linkFuncs $ map compileFunc [ast]
+  where
+    ast =
+      AstFunc
+        "main"
+        []
+        [ AstStmtAssign "w" (AstExprInt (-10)),
+          AstStmtAssign "y" (AstExprInt 9),
+          AstStmtAssign "x" (AstExprInt 3),
+          AstStmtAssign "w" (AstExprInt 1),
+          AstStmtAssign
+            "y"
+            (AstExprBinOp BinOpSub (AstExprVar "w") (AstExprInt 8)),
+          AstStmtAssign "z" (AstExprInt 4),
+          AstStmtAssign
+            "x"
+            (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "z")),
+          AstStmtAssign
+            "u"
+            (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y"))
+        ]
