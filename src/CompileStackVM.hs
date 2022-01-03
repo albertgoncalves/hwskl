@@ -2,7 +2,6 @@
 
 import Data.Array (Array, listArray, (!))
 import Data.List (elemIndex, foldl')
-import Data.Maybe (fromJust)
 
 data Inst
   = InstHalt
@@ -25,45 +24,46 @@ instance Show Node where
 data BinOp
   = BinOpSub
 
-data Ast
-  = AstInt Int
-  | AstVar String
-  | AstBinOp BinOp Ast Ast
-  | AstAssign String Ast
+data AstExpr
+  = AstExprInt Int
+  | AstExprVar String
+  | AstExprBinOp BinOp AstExpr AstExpr
 
-getOffset :: Eq a => Int -> a -> [a] -> Int
-getOffset n x = ((n - 1) -) . fromJust . elemIndex x
+data AstStmt
+  = AstStmtAssign String AstExpr
 
-compile :: Ast -> [String] -> Int -> ([String], Int, [Inst])
-compile (AstInt x) vs n = (vs, n + 1, [InstPush, InstLitInt x])
-compile (AstVar v) vs n =
-  (vs, n + 1, [InstCopy, InstLitInt $ getOffset n v vs])
-compile (AstAssign v x) vs0 n0 =
-  if v `elem` vs1
-    then
+binOpToInst :: BinOp -> Inst
+binOpToInst BinOpSub = InstSub
+
+compileExpr :: AstExpr -> [String] -> Int -> ([String], Int, [Inst])
+compileExpr (AstExprInt x) vs n = (vs, n + 1, [InstPush, InstLitInt x])
+compileExpr (AstExprVar v) vs n =
+  case elemIndex v vs of
+    Just i -> (vs, n + 1, [InstCopy, InstLitInt $ (n - 1) - i])
+    _ -> undefined
+compileExpr (AstExprBinOp b l r) vs0 n0 =
+  (vs2, n2 - 1, is1 ++ is2 ++ [binOpToInst b])
+  where
+    (vs1, n1, is1) = compileExpr l vs0 n0
+    (vs2, n2, is2) = compileExpr r vs1 n1
+
+compileStmt :: AstStmt -> [String] -> Int -> ([String], Int, [Inst])
+compileStmt (AstStmtAssign v x) vs0 n0 =
+  case elemIndex v vs1 of
+    Just i ->
       let n2 = n1 - 1
-          is2 = is1 ++ [InstStore, InstLitInt $ getOffset n2 v vs1]
+          is2 = is1 ++ [InstStore, InstLitInt $ (n2 - 1) - i]
        in (vs1, n2, is2)
-    else (vs1 ++ [v], n1, is1)
+    Nothing -> (vs1 ++ [v], n1, is1)
   where
-    (vs1, n1, is1) = compile x vs0 n0
-compile (AstBinOp b l r) vs0 n0 =
-  ( vs2,
-    n2 - 1,
-    is1 ++ is2
-      ++ [ case b of
-             BinOpSub -> InstSub
-         ]
-  )
-  where
-    (vs1, n1, is1) = compile l vs0 n0
-    (vs2, n2, is2) = compile r vs1 n1
+    (vs1, n1, is1) = compileExpr x vs0 n0
 
-compileAll :: [Ast] -> [Inst]
-compileAll =
-  (\(_, _, x) -> x)
-    . fmap (++ [InstHalt])
-    . foldl' (\(vs0, n0, is0) x -> (is0 ++) <$> compile x vs0 n0) ([], 0, [])
+compile :: [AstStmt] -> [Inst]
+compile =
+  (\(_, _, xs) -> xs ++ [InstHalt])
+    . foldl'
+      (\(vs0, n0, is0) x -> (is0 ++) <$> compileStmt x vs0 n0)
+      ([], 0, [])
 
 store :: Int -> a -> [a] -> [a]
 store _ _ [] = undefined
@@ -114,13 +114,19 @@ main =
   print $
     reverse $
       run $
-        compileAll
-          [ AstAssign "w" (AstInt (-10)),
-            AstAssign "y" (AstInt 9),
-            AstAssign "x" (AstInt 3),
-            AstAssign "w" (AstInt 1),
-            AstAssign "y" (AstBinOp BinOpSub (AstVar "w") (AstInt 8)),
-            AstAssign "z" (AstInt 4),
-            AstAssign "x" (AstBinOp BinOpSub (AstVar "x") (AstVar "z")),
-            AstBinOp BinOpSub (AstVar "x") (AstVar "y")
+        compile
+          [ AstStmtAssign "w" (AstExprInt (-10)),
+            AstStmtAssign "y" (AstExprInt 9),
+            AstStmtAssign "x" (AstExprInt 3),
+            AstStmtAssign "w" (AstExprInt 1),
+            AstStmtAssign
+              "y"
+              (AstExprBinOp BinOpSub (AstExprVar "w") (AstExprInt 8)),
+            AstStmtAssign "z" (AstExprInt 4),
+            AstStmtAssign
+              "x"
+              (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "z")),
+            AstStmtAssign
+              "u"
+              (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y"))
           ]
