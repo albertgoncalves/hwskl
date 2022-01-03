@@ -32,38 +32,44 @@ data AstExpr
 data AstStmt
   = AstStmtAssign String AstExpr
 
+data Compiler = Compiler [String] Int [Inst]
+
+instance Semigroup Compiler where
+  (Compiler _ _ is0) <> (Compiler vs1 n1 is1) = Compiler vs1 n1 (is0 ++ is1)
+
+instance Monoid Compiler where
+  mempty = Compiler [] 0 []
+
 binOpToInst :: BinOp -> Inst
 binOpToInst BinOpSub = InstSub
 
-compileExpr :: AstExpr -> [String] -> Int -> ([String], Int, [Inst])
-compileExpr (AstExprInt x) vs n = (vs, n + 1, [InstPush, InstLitInt x])
+compileExpr :: AstExpr -> [String] -> Int -> Compiler
+compileExpr (AstExprInt x) vs n = Compiler vs (n + 1) [InstPush, InstLitInt x]
 compileExpr (AstExprVar v) vs n =
   case elemIndex v vs of
-    Just i -> (vs, n + 1, [InstCopy, InstLitInt $ (n - 1) - i])
+    Just i -> Compiler vs (n + 1) [InstCopy, InstLitInt $ (n - 1) - i]
     _ -> undefined
 compileExpr (AstExprBinOp b l r) vs0 n0 =
-  (vs2, n2 - 1, is1 ++ is2 ++ [binOpToInst b])
+  Compiler vs2 (n2 - 1) $ is1 ++ is2 ++ [binOpToInst b]
   where
-    (vs1, n1, is1) = compileExpr l vs0 n0
-    (vs2, n2, is2) = compileExpr r vs1 n1
+    (Compiler vs1 n1 is1) = compileExpr l vs0 n0
+    (Compiler vs2 n2 is2) = compileExpr r vs1 n1
 
-compileStmt :: AstStmt -> [String] -> Int -> ([String], Int, [Inst])
+compileStmt :: AstStmt -> [String] -> Int -> Compiler
 compileStmt (AstStmtAssign v x) vs0 n0 =
   case elemIndex v vs1 of
     Just i ->
       let n2 = n1 - 1
-          is2 = is1 ++ [InstStore, InstLitInt $ (n2 - 1) - i]
-       in (vs1, n2, is2)
-    Nothing -> (vs1 ++ [v], n1, is1)
+       in Compiler vs1 n2 $ is1 ++ [InstStore, InstLitInt $ (n2 - 1) - i]
+    Nothing -> Compiler (vs1 ++ [v]) n1 is1
   where
-    (vs1, n1, is1) = compileExpr x vs0 n0
+    (Compiler vs1 n1 is1) = compileExpr x vs0 n0
+
+step :: Compiler -> AstStmt -> Compiler
+step c@(Compiler vs0 n0 _) x = c <> compileStmt x vs0 n0
 
 compile :: [AstStmt] -> [Inst]
-compile =
-  (\(_, _, xs) -> xs ++ [InstHalt])
-    . foldl'
-      (\(vs0, n0, is0) x -> (is0 ++) <$> compileStmt x vs0 n0)
-      ([], 0, [])
+compile = (\(Compiler _ _ xs) -> xs ++ [InstHalt]) . foldl' step mempty
 
 store :: Int -> a -> [a] -> [a]
 store _ _ [] = undefined
