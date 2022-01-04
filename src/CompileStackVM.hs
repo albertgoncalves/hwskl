@@ -2,7 +2,7 @@
 
 import Data.Array (Array, listArray, (!))
 import Data.List (foldl')
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import Text.Printf (printf)
 
 data Inst
@@ -164,8 +164,7 @@ getVars xs = M.fromList $ zip (reverse xs) [0 ..]
 
 compileFunc :: AstFunc -> Int -> Compiler
 compileFunc (AstFunc name [] [] stmts expr) labelCount =
-  Compiler l1 $
-    [PreInstLabelSet name] ++ insts0 ++ insts1 ++ [InstSwap, InstJump]
+  Compiler l1 $ PreInstLabelSet name : insts0 ++ insts1 ++ [InstSwap, InstJump]
   where
     (Compiler l0 insts0) = append (compileStmt M.empty) labelCount stmts
     (Compiler l1 insts1) = getCompiler $ compileExpr M.empty expr 0 l0
