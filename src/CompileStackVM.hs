@@ -123,23 +123,23 @@ binOpToInst BinOpSub = InstSub
 
 compileExpr :: M.Map String Int -> AstExpr -> Int -> Int -> CompilerStack
 compileExpr _ (AstExprInt x) n l =
-  CompilerStack (Compiler l [InstPush, InstLitInt x]) $ n + 1
+  CompilerStack (Compiler l [InstPush, InstLitInt x]) $ succ n
 compileExpr vars (AstExprVar x) n l =
-  CompilerStack (Compiler l [InstCopy, InstLitInt $ n + vars M.! x]) $ n + 1
+  CompilerStack (Compiler l [InstCopy, InstLitInt $ n + vars M.! x]) $ succ n
 compileExpr vars (AstExprBinOp op l r) n0 l0 =
   CompilerStack
     (Compiler l2 $ insts1 ++ insts2 ++ [binOpToInst op])
-    $ n0 + 1
+    $ succ n0
   where
     (CompilerStack (Compiler l1 insts1) n1) = compileExpr vars l n0 l0
     (CompilerStack (Compiler l2 insts2) _) = compileExpr vars r n1 l1
 compileExpr vars (AstExprCall name exprs) n0 l0 =
   CompilerStack
-    ( Compiler (l3 + 1) $
+    ( Compiler (succ l3) $
         PreInstLabelPush label :
         insts3 ++ [PreInstLabelPush name, InstJump, PreInstLabelSet label]
     )
-    $ n0 + 1
+    $ succ n0
   where
     label :: String
     label = printf "_%d" l3
@@ -148,7 +148,9 @@ compileExpr vars (AstExprCall name exprs) n0 l0 =
         ( \c1@(CompilerStack (Compiler l1 _) n1) x ->
             c1 <> compileExpr vars x n1 l1
         )
-        (CompilerStack (Compiler l0 []) $ n0 + 1)
+        -- NOTE: When compiling a `call`, we need to account for the return
+        -- address of the call on the stack, so we need to use `n0 + 1` here.
+        (CompilerStack (Compiler l0 []) $ succ n0)
         exprs
 
 compileStmt :: M.Map String Int -> AstStmt -> Int -> Compiler
