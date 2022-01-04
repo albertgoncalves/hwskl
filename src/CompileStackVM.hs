@@ -1,7 +1,9 @@
 {-# LANGUAGE Strict #-}
 
 import Data.Array (Array, listArray, (!))
-import Data.List (elemIndex, foldl')
+import Data.List (foldl')
+import qualified Data.Map as M
+import Text.Printf (printf)
 
 data Inst
   = InstHalt
@@ -9,11 +11,14 @@ data Inst
   | InstCopy
   | InstStore
   | InstDrop
+  | InstRsrv
   | InstSwap
   | InstJump
   | InstJifz
   | InstSub
   | InstLitInt Int
+  | PreInstLabelSet String
+  | PreInstLabelPush String
   deriving (Show)
 
 newtype Node = Node {getInt :: Int}
@@ -23,65 +28,43 @@ instance Show Node where
 
 data BinOp
   = BinOpSub
+  deriving (Show)
 
 data AstExpr
   = AstExprInt Int
   | AstExprVar String
   | AstExprBinOp BinOp AstExpr AstExpr
+  | AstExprCall String [AstExpr]
+  deriving (Show)
 
 data AstStmt
   = AstStmtAssign String AstExpr
+  deriving (Show)
 
-data AstFunc = AstFunc String [String] [AstStmt]
+data AstFunc = AstFunc
+  { getAstFuncName :: String,
+    getAstFuncArgs :: [String],
+    getAstFuncLocals :: [String],
+    getAstFuncAst :: [AstStmt],
+    getAstFuncRet :: AstExpr
+  }
+  deriving (Show)
 
-data CompiledFunc = CompiledFunc String [Inst]
+data Compiler = Compiler
+  { getLabelCount :: Int,
+    getInsts :: [Inst]
+  }
 
-data Compiler = Compiler [String] Int [Inst]
+data CompilerStack = CompilerStack
+  { getCompiler :: Compiler,
+    getStackOffset :: Int
+  }
 
 instance Semigroup Compiler where
-  (Compiler _ _ is0) <> (Compiler vs1 n1 is1) = Compiler vs1 n1 (is0 ++ is1)
+  (Compiler _ xs0) <> (Compiler n1 xs1) = Compiler n1 $ xs0 ++ xs1
 
-instance Monoid Compiler where
-  mempty = Compiler [] 0 []
-
-binOpToInst :: BinOp -> Inst
-binOpToInst BinOpSub = InstSub
-
-compileExpr :: AstExpr -> [String] -> Int -> Compiler
-compileExpr (AstExprInt x) vs n = Compiler vs (n + 1) [InstPush, InstLitInt x]
-compileExpr (AstExprVar v) vs n =
-  case elemIndex v vs of
-    Just i -> Compiler vs (n + 1) [InstCopy, InstLitInt $ (n - 1) - i]
-    _ -> undefined
-compileExpr (AstExprBinOp b l r) vs0 n0 =
-  Compiler vs2 (n2 - 1) $ is1 ++ is2 ++ [binOpToInst b]
-  where
-    (Compiler vs1 n1 is1) = compileExpr l vs0 n0
-    (Compiler vs2 n2 is2) = compileExpr r vs1 n1
-
-compileStmt :: AstStmt -> [String] -> Int -> Compiler
-compileStmt (AstStmtAssign v x) vs0 n0 =
-  case elemIndex v vs1 of
-    Just i ->
-      let n2 = n1 - 1
-       in Compiler vs1 n2 $ is1 ++ [InstStore, InstLitInt $ (n2 - 1) - i]
-    Nothing -> Compiler (vs1 ++ [v]) n1 is1
-  where
-    (Compiler vs1 n1 is1) = compileExpr x vs0 n0
-
-step :: Compiler -> AstStmt -> Compiler
-step c@(Compiler vs0 n0 _) x = c <> compileStmt x vs0 n0
-
-compileStmts :: [String] -> [AstStmt] -> [Inst]
-compileStmts vs =
-  (\(Compiler _ _ xs) -> xs ++ [InstHalt]) . foldl' step (Compiler vs 0 [])
-
-compileFunc :: AstFunc -> CompiledFunc
-compileFunc (AstFunc v vs xs) = CompiledFunc v $ compileStmts vs xs
-
-linkFuncs :: [CompiledFunc] -> [Inst]
-linkFuncs [CompiledFunc "main" xs] = xs
-linkFuncs _ = undefined
+instance Semigroup CompilerStack where
+  (CompilerStack c0 _) <> (CompilerStack c1 n1) = CompilerStack (c0 <> c1) n1
 
 store :: Int -> a -> [a] -> [a]
 store _ _ [] = undefined
@@ -89,6 +72,9 @@ store 0 x xs = x : tail xs
 store n _ xs
   | (n < 0) || (length xs < n) = undefined
 store n x1 (x0 : xs) = x0 : store (n - 1) x1 xs
+
+reserve :: Int -> a -> [a] -> [a]
+reserve n a = (replicate n a ++)
 
 swap :: [a] -> [a]
 swap (b : a : xs) = a : b : xs
@@ -106,13 +92,15 @@ eval :: Array Int Inst -> Int -> [Node] -> [Node]
 eval insts i xs =
   case insts ! i of
     InstHalt -> xs
-    InstPush -> eval insts (i + 2) (Node (lit $ insts ! (i + 1)) : xs)
-    InstCopy -> eval insts (i + 2) ((xs !! lit (insts ! (i + 1))) : xs)
+    InstPush -> eval insts (i + 2) $ Node (lit $ insts ! (i + 1)) : xs
+    InstCopy -> eval insts (i + 2) $ (xs !! lit (insts ! (i + 1))) : xs
     InstStore ->
-      eval insts (i + 2) (store (lit $ insts ! (i + 1)) (head xs) (tail xs))
-    InstDrop -> eval insts (i + 2) (drop (lit $ insts ! (i + 1)) xs)
-    InstSwap -> eval insts (i + 1) (swap xs)
-    InstJump -> eval insts (getInt $ head xs) (tail xs)
+      eval insts (i + 2) $ store (lit $ insts ! (i + 1)) (head xs) $ tail xs
+    InstDrop -> eval insts (i + 2) $ drop (lit $ insts ! (i + 1)) xs
+    InstRsrv ->
+      eval insts (i + 2) $ reserve (lit $ insts ! (i + 1)) (Node 0) xs
+    InstSwap -> eval insts (i + 1) $ swap xs
+    InstJump -> eval insts (getInt $ head xs) $ tail xs
     InstJifz ->
       let (a, b, xs') = pop2 xs
        in if getInt a == 0
@@ -127,25 +115,148 @@ run :: [Inst] -> [Node]
 run [] = undefined
 run xs = eval (listArray (0, length xs - 1) xs) 0 []
 
-main :: IO ()
-main = print $ reverse $ run $ linkFuncs $ map compileFunc [ast]
+append :: (a -> Int -> Compiler) -> Int -> [a] -> Compiler
+append f n0 = foldl' (\c@(Compiler n1 _) x -> c <> f x n1) (Compiler n0 [])
+
+binOpToInst :: BinOp -> Inst
+binOpToInst BinOpSub = InstSub
+
+compileExpr :: M.Map String Int -> AstExpr -> Int -> Int -> CompilerStack
+compileExpr _ (AstExprInt x) n l =
+  CompilerStack (Compiler l [InstPush, InstLitInt x]) $ n + 1
+compileExpr vars (AstExprVar x) n l =
+  CompilerStack (Compiler l [InstCopy, InstLitInt $ n + vars M.! x]) $ n + 1
+compileExpr vars (AstExprBinOp op l r) n0 l0 =
+  CompilerStack
+    (Compiler l2 $ insts1 ++ insts2 ++ [binOpToInst op])
+    $ n0 + 1
   where
-    ast =
-      AstFunc
-        "main"
-        []
-        [ AstStmtAssign "w" (AstExprInt (-10)),
-          AstStmtAssign "y" (AstExprInt 9),
-          AstStmtAssign "x" (AstExprInt 3),
-          AstStmtAssign "w" (AstExprInt 1),
-          AstStmtAssign
-            "y"
-            (AstExprBinOp BinOpSub (AstExprVar "w") (AstExprInt 8)),
-          AstStmtAssign "z" (AstExprInt 4),
-          AstStmtAssign
-            "x"
-            (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "z")),
-          AstStmtAssign
-            "u"
-            (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y"))
-        ]
+    (CompilerStack (Compiler l1 insts1) n1) = compileExpr vars l n0 l0
+    (CompilerStack (Compiler l2 insts2) _) = compileExpr vars r n1 l1
+compileExpr vars (AstExprCall name exprs) n0 l0 =
+  CompilerStack
+    ( Compiler (l3 + 1) $
+        PreInstLabelPush label :
+        insts3 ++ [PreInstLabelPush name, InstJump, PreInstLabelSet label]
+    )
+    $ n0 + 1
+  where
+    label :: String
+    label = printf "_%d" l3
+    (CompilerStack (Compiler l3 insts3) _) =
+      foldl'
+        ( \c1@(CompilerStack (Compiler l1 _) n1) x ->
+            c1 <> compileExpr vars x n1 l1
+        )
+        (CompilerStack (Compiler l0 []) $ n0 + 1)
+        exprs
+
+compileStmt :: M.Map String Int -> AstStmt -> Int -> Compiler
+compileStmt vars (AstStmtAssign name expr) labelCount =
+  Compiler l1 $ insts1 ++ [InstStore, InstLitInt $ vars M.! name]
+  where
+    (CompilerStack (Compiler l1 insts1) _) = compileExpr vars expr 0 labelCount
+
+getVars :: [String] -> M.Map String Int
+getVars xs = M.fromList $ zip (reverse xs) [0 ..]
+
+compileFunc :: AstFunc -> Int -> Compiler
+compileFunc (AstFunc name [] [] stmts expr) labelCount =
+  Compiler l1 $
+    [PreInstLabelSet name] ++ insts0 ++ insts1 ++ [InstSwap, InstJump]
+  where
+    (Compiler l0 insts0) = append (compileStmt M.empty) labelCount stmts
+    (Compiler l1 insts1) = getCompiler $ compileExpr M.empty expr 0 l0
+compileFunc (AstFunc name args locals stmts expr) labelCount =
+  Compiler l1 $
+    PreInstLabelSet name :
+    ( let n = length locals
+       in if n == 0
+            then []
+            else [InstRsrv, InstLitInt n]
+    )
+      ++ insts0
+      ++ insts1
+      ++ ( let n = length args + length locals - 1
+            in if n == 0
+                 then [InstStore, InstLitInt n, InstSwap, InstJump]
+                 else
+                   [ InstStore,
+                     InstLitInt n,
+                     InstDrop,
+                     InstLitInt n,
+                     InstSwap,
+                     InstJump
+                   ]
+         )
+  where
+    vars = getVars $ args ++ locals
+    (Compiler l0 insts0) = append (compileStmt vars) labelCount stmts
+    (Compiler l1 insts1) = getCompiler $ compileExpr vars expr 0 l0
+
+compile :: [AstFunc] -> [Inst]
+compile =
+  ( [ PreInstLabelPush "_0",
+      PreInstLabelPush "main",
+      InstJump,
+      PreInstLabelSet "_0",
+      InstHalt
+    ]
+      ++
+  )
+    . getInsts
+    . append compileFunc 1
+
+weightInst :: Inst -> Int
+weightInst (PreInstLabelPush _) = 2
+weightInst (PreInstLabelSet _) = 0
+weightInst _ = 1
+
+getLabels :: [Inst] -> M.Map String Int
+getLabels xs = M.fromList $ f $ zip xs $ scanl (+) 0 $ map weightInst xs
+  where
+    f [] = []
+    f ((PreInstLabelSet x, n) : xs') = (x, n) : f xs'
+    f (_ : xs') = f xs'
+
+resolve :: [Inst] -> M.Map String Int -> [Inst]
+resolve [] _ = []
+resolve (PreInstLabelSet _ : xs) m = resolve xs m
+resolve (PreInstLabelPush x : xs) m =
+  [InstPush, InstLitInt (m M.! x)] ++ resolve xs m
+resolve (x : xs) m = x : resolve xs m
+
+assemble :: [Inst] -> [Inst]
+assemble xs = resolve xs $ getLabels xs
+
+main :: IO ()
+main =
+  print $
+    run $
+      assemble $
+        compile
+          [ AstFunc
+              "f1"
+              ["x", "y"]
+              ["z"]
+              [ AstStmtAssign
+                  "x"
+                  (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
+                AstStmtAssign
+                  "z"
+                  (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y"))
+              ]
+              (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
+            AstFunc
+              "f0"
+              ["x"]
+              []
+              []
+              (AstExprCall "f1" [AstExprVar "x", AstExprInt 3]),
+            AstFunc
+              "main"
+              []
+              []
+              []
+              (AstExprCall "f0" [AstExprInt (-1)])
+          ]
