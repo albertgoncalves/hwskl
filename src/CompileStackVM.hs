@@ -237,6 +237,15 @@ main =
       assemble $
         compile
           [ AstFunc
+              "f2"
+              []
+              ["x"]
+              [ AstStmtAssign
+                  "x"
+                  (AstExprBinOp BinOpSub (AstExprInt 3) (AstExprInt 10))
+              ]
+              (AstExprVar "x"),
+            AstFunc
               "f1"
               ["x", "y"]
               ["z"]
@@ -245,7 +254,11 @@ main =
                   (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
                 AstStmtAssign
                   "z"
-                  (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y"))
+                  ( AstExprBinOp
+                      BinOpSub
+                      (AstExprVar "x")
+                      (AstExprCall "f2" [])
+                  )
               ]
               (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
             AstFunc
