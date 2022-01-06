@@ -40,6 +40,7 @@ data AstExpr
 data AstStmt
   = AstStmtAssign String AstExpr
   | AstStmtIf AstExpr [AstStmt]
+  | AstStmtReturn AstExpr
   deriving (Show)
 
 data AstFunc = AstFunc
@@ -162,13 +163,13 @@ compileExpr vars (AstExprCall name exprs) n0 l0 =
         (CompilerStack (Compiler l0 []) $ succ n0)
         exprs
 
-compileStmt :: M.Map String Int -> Int -> AstStmt -> Int -> Compiler
-compileStmt vars offset (AstStmtAssign name expr) labelCount =
+compileStmt :: String -> M.Map String Int -> Int -> AstStmt -> Int -> Compiler
+compileStmt _ vars n0 (AstStmtAssign name expr) l0 =
   Compiler l1 $ insts1 ++ [InstStore, InstLitInt $ vars M.! name]
   where
     (CompilerStack (Compiler l1 insts1) _) =
-      compileExpr vars expr offset labelCount
-compileStmt vars n0 (AstStmtIf condition body) l0 =
+      compileExpr vars expr n0 l0
+compileStmt returnLabel vars n0 (AstStmtIf condition body) l0 =
   Compiler l2 $
     PreInstLabelPush label :
     insts1 ++ [InstJifz] ++ insts2 ++ [PreInstLabelSet label]
@@ -176,17 +177,30 @@ compileStmt vars n0 (AstStmtIf condition body) l0 =
     label = getLabel l0
     (CompilerStack (Compiler l1 insts1) _) =
       compileExpr vars condition (succ n0) $ succ l0
-    (Compiler l2 insts2) = append (compileStmt vars n0) l1 body
+    (Compiler l2 insts2) = append (compileStmt returnLabel vars n0) l1 body
+compileStmt returnLabel vars n0 (AstStmtReturn expr) l0 =
+  Compiler l1 $ insts1 ++ [PreInstLabelPush returnLabel, InstJump]
+  where
+    (CompilerStack (Compiler l1 insts1) _) = compileExpr vars expr n0 l0
 
 getVars :: [String] -> M.Map String Int
 getVars xs = M.fromList $ zip (reverse xs) [0 ..]
 
+getReturnLabel :: String -> String
+getReturnLabel = printf "_%s_return"
+
 compileFunc :: AstFunc -> Int -> Compiler
 compileFunc (AstFunc name [] [] stmts expr) labelCount =
-  Compiler l1 $ PreInstLabelSet name : insts0 ++ insts1 ++ [InstSwap, InstJump]
+  Compiler l1 $
+    PreInstLabelSet name :
+    insts0
+      ++ insts1
+      ++ [PreInstLabelSet returnLabel, InstSwap, InstJump]
   where
-    (Compiler l0 insts0) = append (compileStmt M.empty 0) labelCount stmts
+    (Compiler l0 insts0) =
+      append (compileStmt returnLabel M.empty 0) labelCount stmts
     (Compiler l1 insts1) = getCompiler $ compileExpr M.empty expr 0 l0
+    returnLabel = getReturnLabel name
 compileFunc (AstFunc name args locals stmts expr) labelCount =
   Compiler l1 $
     PreInstLabelSet name :
@@ -197,6 +211,7 @@ compileFunc (AstFunc name args locals stmts expr) labelCount =
     )
       ++ insts0
       ++ insts1
+      ++ [PreInstLabelSet returnLabel]
       ++ ( let n = length args + length locals - 1
             in if n == 0
                  then [InstStore, InstLitInt n, InstSwap, InstJump]
@@ -211,8 +226,10 @@ compileFunc (AstFunc name args locals stmts expr) labelCount =
          )
   where
     vars = getVars $ args ++ locals
-    (Compiler l0 insts0) = append (compileStmt vars 0) labelCount stmts
+    (Compiler l0 insts0) =
+      append (compileStmt returnLabel vars 0) labelCount stmts
     (Compiler l1 insts1) = getCompiler $ compileExpr vars expr 0 l0
+    returnLabel = getReturnLabel name
 
 compile :: [AstFunc] -> [Inst]
 compile =
@@ -251,55 +268,55 @@ assemble xs = resolve xs $ getLabels xs
 
 main :: IO ()
 main =
-  print $
-    run $
-      assemble $
-        compile
-          [ AstFunc
-              "f2"
-              []
-              ["x"]
-              [ AstStmtAssign
-                  "x"
-                  (AstExprBinOp BinOpSub (AstExprInt 3) (AstExprInt 10))
-              ]
-              (AstExprVar "x"),
-            AstFunc
-              "f1"
-              ["x", "y"]
-              ["z", "u"]
-              [ AstStmtAssign
-                  "x"
-                  (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
-                AstStmtIf
-                  (AstExprVar "x")
-                  [AstStmtAssign "x" (AstExprVar "y")],
-                AstStmtAssign
-                  "u"
-                  ( AstExprBinOp
-                      BinOpSub
-                      (AstExprBinOp BinOpSub (AstExprVar "f2") (AstExprInt 2))
-                      (AstExprInt $ -2)
-                  ),
-                AstStmtAssign
-                  "z"
-                  ( AstExprBinOp
-                      BinOpSub
-                      (AstExprVar "x")
-                      (AstExprCall "u" [])
-                  )
-              ]
-              (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
-            AstFunc
-              "f0"
-              ["x"]
-              ["y"]
-              [AstStmtAssign "y" (AstExprVar "f1")]
-              (AstExprCall "y" [AstExprVar "x", AstExprInt 3]),
-            AstFunc
-              "main"
-              []
-              []
-              []
-              (AstExprCall "f0" [AstExprInt $ -1])
-          ]
+  (print . head . run . assemble . compile)
+    [ AstFunc
+        "f2"
+        []
+        ["x"]
+        [ AstStmtAssign
+            "x"
+            (AstExprBinOp BinOpSub (AstExprInt 3) (AstExprInt 10))
+        ]
+        (AstExprVar "x"),
+      AstFunc
+        "f1"
+        ["x", "y"]
+        ["z", "u"]
+        [ AstStmtAssign
+            "x"
+            (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
+          AstStmtIf
+            (AstExprVar "x")
+            [AstStmtAssign "x" (AstExprVar "y")],
+          AstStmtAssign
+            "u"
+            ( AstExprBinOp
+                BinOpSub
+                (AstExprBinOp BinOpSub (AstExprVar "f2") (AstExprInt 2))
+                (AstExprInt $ -2)
+            ),
+          AstStmtAssign
+            "z"
+            ( AstExprBinOp
+                BinOpSub
+                (AstExprVar "x")
+                (AstExprCall "u" [])
+            )
+        ]
+        (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
+      AstFunc
+        "f0"
+        ["x"]
+        ["y"]
+        [
+          AstStmtIf (AstExprVar "x") [AstStmtReturn (AstExprInt 0)],
+          AstStmtAssign "y" (AstExprVar "f1")
+        ]
+        (AstExprCall "y" [AstExprVar "x", AstExprInt 3]),
+      AstFunc
+        "main"
+        []
+        []
+        []
+        (AstExprCall "f0" [AstExprInt $ -1])
+    ]
