@@ -68,6 +68,12 @@ instance Semigroup Compiler where
 instance Semigroup CompilerStack where
   (CompilerStack c0 _) <> (CompilerStack c1 n1) = CompilerStack (c0 <> c1) n1
 
+data Scope = Scope
+  { getScopeReturnLabel :: String,
+    getScopeVars :: M.Map String Int,
+    getScopeStackOffset :: Int
+  }
+
 store :: Int -> a -> [a] -> [a]
 store _ _ [] = undefined
 store 0 x xs = x : tail xs
@@ -163,13 +169,13 @@ compileExpr vars (AstExprCall name exprs) n0 l0 =
         (CompilerStack (Compiler l0 []) $ succ n0)
         exprs
 
-compileStmt :: String -> M.Map String Int -> Int -> AstStmt -> Int -> Compiler
-compileStmt _ vars n0 (AstStmtAssign name expr) l0 =
+compileStmt :: Scope -> AstStmt -> Int -> Compiler
+compileStmt (Scope _ vars n0) (AstStmtAssign name expr) l0 =
   Compiler l1 $ insts1 ++ [InstStore, InstLitInt $ vars M.! name]
   where
     (CompilerStack (Compiler l1 insts1) _) =
       compileExpr vars expr n0 l0
-compileStmt returnLabel vars n0 (AstStmtIf condition body) l0 =
+compileStmt s@(Scope _ vars n0) (AstStmtIf condition body) l0 =
   Compiler l2 $
     PreInstLabelPush label :
     insts1 ++ [InstJifz] ++ insts2 ++ [PreInstLabelSet label]
@@ -177,8 +183,8 @@ compileStmt returnLabel vars n0 (AstStmtIf condition body) l0 =
     label = getLabel l0
     (CompilerStack (Compiler l1 insts1) _) =
       compileExpr vars condition (succ n0) $ succ l0
-    (Compiler l2 insts2) = append (compileStmt returnLabel vars n0) l1 body
-compileStmt returnLabel vars n0 (AstStmtReturn expr) l0 =
+    (Compiler l2 insts2) = append (compileStmt s) l1 body
+compileStmt (Scope returnLabel vars n0) (AstStmtReturn expr) l0 =
   Compiler l1 $ insts1 ++ [PreInstLabelPush returnLabel, InstJump]
   where
     (CompilerStack (Compiler l1 insts1) _) = compileExpr vars expr n0 l0
@@ -198,7 +204,7 @@ compileFunc (AstFunc name [] [] stmts expr) labelCount =
       ++ [PreInstLabelSet returnLabel, InstSwap, InstJump]
   where
     (Compiler l0 insts0) =
-      append (compileStmt returnLabel M.empty 0) labelCount stmts
+      append (compileStmt $ Scope returnLabel M.empty 0) labelCount stmts
     (Compiler l1 insts1) = getCompiler $ compileExpr M.empty expr 0 l0
     returnLabel = getReturnLabel name
 compileFunc (AstFunc name args locals stmts expr) labelCount =
@@ -227,7 +233,7 @@ compileFunc (AstFunc name args locals stmts expr) labelCount =
   where
     vars = getVars $ args ++ locals
     (Compiler l0 insts0) =
-      append (compileStmt returnLabel vars 0) labelCount stmts
+      append (compileStmt $ Scope returnLabel vars 0) labelCount stmts
     (Compiler l1 insts1) = getCompiler $ compileExpr vars expr 0 l0
     returnLabel = getReturnLabel name
 
