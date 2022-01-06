@@ -307,15 +307,15 @@ main =
                 BinOpSub
                 (AstExprVar "x")
                 (AstExprCall "u" [])
-            )
+            ),
+          AstStmtReturn $ AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 2)
         ]
         (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
       AstFunc
         "f0"
         ["x"]
         ["y"]
-        [
-          AstStmtIf (AstExprVar "x") [AstStmtReturn (AstExprInt 0)],
+        [ AstStmtIf (AstExprVar "x") [AstStmtReturn $ AstExprInt 0],
           AstStmtAssign "y" (AstExprVar "f1")
         ]
         (AstExprCall "y" [AstExprVar "x", AstExprInt 3]),
@@ -324,5 +324,5 @@ main =
         []
         []
         []
-        (AstExprCall "f0" [AstExprInt $ -1])
+        (AstExprCall "f0" [AstExprInt 0])
     ]
