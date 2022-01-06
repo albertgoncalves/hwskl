@@ -285,5 +285,5 @@ main =
               []
               []
               []
-              (AstExprCall "f0" [AstExprInt (-1)])
+              (AstExprCall "f0" [AstExprInt $ -1])
           ]
