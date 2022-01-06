@@ -121,11 +121,17 @@ append f n0 = foldl' (\c@(Compiler n1 _) x -> c <> f x n1) (Compiler n0 [])
 binOpToInst :: BinOp -> Inst
 binOpToInst BinOpSub = InstSub
 
+lookupVar :: M.Map String Int -> String -> Int -> [Inst]
+lookupVar vars name n =
+  case M.lookup name vars of
+    Just x -> [InstCopy, InstLitInt $ n + x]
+    Nothing -> [PreInstLabelPush name]
+
 compileExpr :: M.Map String Int -> AstExpr -> Int -> Int -> CompilerStack
 compileExpr _ (AstExprInt x) n l =
   CompilerStack (Compiler l [InstPush, InstLitInt x]) $ succ n
-compileExpr vars (AstExprVar x) n l =
-  CompilerStack (Compiler l [InstCopy, InstLitInt $ n + vars M.! x]) $ succ n
+compileExpr vars (AstExprVar name) n l =
+  CompilerStack (Compiler l $ lookupVar vars name n) $ succ n
 compileExpr vars (AstExprBinOp op l r) n0 l0 =
   CompilerStack
     (Compiler l2 $ insts1 ++ insts2 ++ [binOpToInst op])
@@ -137,13 +143,13 @@ compileExpr vars (AstExprCall name exprs) n0 l0 =
   CompilerStack
     ( Compiler (succ l3) $
         PreInstLabelPush label :
-        insts3 ++ [PreInstLabelPush name, InstJump, PreInstLabelSet label]
+        insts3 ++ lookupVar vars name n3 ++ [InstJump, PreInstLabelSet label]
     )
     $ succ n0
   where
     label :: String
     label = printf "_%d" l3
-    (CompilerStack (Compiler l3 insts3) _) =
+    (CompilerStack (Compiler l3 insts3) n3) =
       foldl'
         ( \c1@(CompilerStack (Compiler l1 _) n1) x ->
             c1 <> compileExpr vars x n1 l1
@@ -248,25 +254,32 @@ main =
             AstFunc
               "f1"
               ["x", "y"]
-              ["z"]
+              ["z", "u"]
               [ AstStmtAssign
                   "x"
                   (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
+                AstStmtAssign
+                  "u"
+                  ( AstExprBinOp
+                      BinOpSub
+                      (AstExprBinOp BinOpSub (AstExprVar "f2") (AstExprInt 2))
+                      (AstExprInt $ -2)
+                  ),
                 AstStmtAssign
                   "z"
                   ( AstExprBinOp
                       BinOpSub
                       (AstExprVar "x")
-                      (AstExprCall "f2" [])
+                      (AstExprCall "u" [])
                   )
               ]
               (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
             AstFunc
               "f0"
               ["x"]
-              []
-              []
-              (AstExprCall "f1" [AstExprVar "x", AstExprInt 3]),
+              ["y"]
+              [AstStmtAssign "y" (AstExprVar "f1")]
+              (AstExprCall "y" [AstExprVar "x", AstExprInt 3]),
             AstFunc
               "main"
               []
