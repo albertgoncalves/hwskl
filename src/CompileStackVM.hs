@@ -39,6 +39,7 @@ data AstExpr
 
 data AstStmt
   = AstStmtAssign String AstExpr
+  | AstStmtIf AstExpr [AstStmt]
   deriving (Show)
 
 data AstFunc = AstFunc
@@ -103,8 +104,8 @@ eval insts i xs =
     InstJump -> eval insts (getInt $ head xs) $ tail xs
     InstJifz ->
       let (a, b, xs') = pop2 xs
-       in if getInt a == 0
-            then eval insts (getInt b) xs'
+       in if getInt b == 0
+            then eval insts (getInt a) xs'
             else eval insts (i + 1) xs'
     InstSub ->
       let (a, b, xs') = pop2 xs
@@ -127,6 +128,9 @@ lookupVar vars name n =
     Just x -> [InstCopy, InstLitInt $ n + x]
     Nothing -> [PreInstLabelPush name]
 
+getLabel :: Int -> String
+getLabel = printf "_%d"
+
 compileExpr :: M.Map String Int -> AstExpr -> Int -> Int -> CompilerStack
 compileExpr _ (AstExprInt x) n l =
   CompilerStack (Compiler l [InstPush, InstLitInt x]) $ succ n
@@ -147,8 +151,7 @@ compileExpr vars (AstExprCall name exprs) n0 l0 =
     )
     $ succ n0
   where
-    label :: String
-    label = printf "_%d" l3
+    label = getLabel l3
     (CompilerStack (Compiler l3 insts3) n3) =
       foldl'
         ( \c1@(CompilerStack (Compiler l1 _) n1) x ->
@@ -159,11 +162,21 @@ compileExpr vars (AstExprCall name exprs) n0 l0 =
         (CompilerStack (Compiler l0 []) $ succ n0)
         exprs
 
-compileStmt :: M.Map String Int -> AstStmt -> Int -> Compiler
-compileStmt vars (AstStmtAssign name expr) labelCount =
+compileStmt :: M.Map String Int -> Int -> AstStmt -> Int -> Compiler
+compileStmt vars offset (AstStmtAssign name expr) labelCount =
   Compiler l1 $ insts1 ++ [InstStore, InstLitInt $ vars M.! name]
   where
-    (CompilerStack (Compiler l1 insts1) _) = compileExpr vars expr 0 labelCount
+    (CompilerStack (Compiler l1 insts1) _) =
+      compileExpr vars expr offset labelCount
+compileStmt vars n0 (AstStmtIf condition body) l0 =
+  Compiler l2 $
+    PreInstLabelPush label :
+    insts1 ++ [InstJifz] ++ insts2 ++ [PreInstLabelSet label]
+  where
+    label = getLabel l0
+    (CompilerStack (Compiler l1 insts1) _) =
+      compileExpr vars condition (succ n0) $ succ l0
+    (Compiler l2 insts2) = append (compileStmt vars n0) l1 body
 
 getVars :: [String] -> M.Map String Int
 getVars xs = M.fromList $ zip (reverse xs) [0 ..]
@@ -172,7 +185,7 @@ compileFunc :: AstFunc -> Int -> Compiler
 compileFunc (AstFunc name [] [] stmts expr) labelCount =
   Compiler l1 $ PreInstLabelSet name : insts0 ++ insts1 ++ [InstSwap, InstJump]
   where
-    (Compiler l0 insts0) = append (compileStmt M.empty) labelCount stmts
+    (Compiler l0 insts0) = append (compileStmt M.empty 0) labelCount stmts
     (Compiler l1 insts1) = getCompiler $ compileExpr M.empty expr 0 l0
 compileFunc (AstFunc name args locals stmts expr) labelCount =
   Compiler l1 $
@@ -198,7 +211,7 @@ compileFunc (AstFunc name args locals stmts expr) labelCount =
          )
   where
     vars = getVars $ args ++ locals
-    (Compiler l0 insts0) = append (compileStmt vars) labelCount stmts
+    (Compiler l0 insts0) = append (compileStmt vars 0) labelCount stmts
     (Compiler l1 insts1) = getCompiler $ compileExpr vars expr 0 l0
 
 compile :: [AstFunc] -> [Inst]
@@ -258,6 +271,9 @@ main =
               [ AstStmtAssign
                   "x"
                   (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
+                AstStmtIf
+                  (AstExprVar "x")
+                  [AstStmtAssign "x" (AstExprVar "y")],
                 AstStmtAssign
                   "u"
                   ( AstExprBinOp
