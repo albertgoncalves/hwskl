@@ -3,6 +3,7 @@
 import Data.Array (Array, listArray, (!))
 import Data.List (foldl')
 import qualified Data.Map.Strict as M
+import Debug.Trace (trace)
 import Text.Printf (printf)
 
 data Inst
@@ -28,20 +29,17 @@ instance Show Node where
 
 data BinOp
   = BinOpSub
-  deriving (Show)
 
 data AstExpr
   = AstExprInt Int
   | AstExprVar String
   | AstExprBinOp BinOp AstExpr AstExpr
   | AstExprCall String [AstExpr]
-  deriving (Show)
 
 data AstStmt
   = AstStmtAssign String AstExpr
   | AstStmtIf AstExpr [AstStmt]
   | AstStmtReturn AstExpr
-  deriving (Show)
 
 data AstFunc = AstFunc
   { getAstFuncName :: String,
@@ -50,28 +48,21 @@ data AstFunc = AstFunc
     getAstFuncAst :: [AstStmt],
     getAstFuncRet :: AstExpr
   }
-  deriving (Show)
+
+newtype Labels = Labels
+  { getLabelReturn :: String
+  }
+
+data Context = Context
+  { getContextStackOffset :: Int,
+    getContextVars :: M.Map String Int,
+    getContextLabels :: Labels,
+    getContextCompiler :: Compiler
+  }
 
 data Compiler = Compiler
-  { getLabelCount :: Int,
-    getInsts :: [Inst]
-  }
-
-data CompilerStack = CompilerStack
-  { getCompiler :: Compiler,
-    getStackOffset :: Int
-  }
-
-instance Semigroup Compiler where
-  (Compiler _ xs0) <> (Compiler n1 xs1) = Compiler n1 $ xs0 ++ xs1
-
-instance Semigroup CompilerStack where
-  (CompilerStack c0 _) <> (CompilerStack c1 n1) = CompilerStack (c0 <> c1) n1
-
-data Scope = Scope
-  { getScopeReturnLabel :: String,
-    getScopeVars :: M.Map String Int,
-    getScopeStackOffset :: Int
+  { getCompilerLabelCount :: Int,
+    getCompilerInsts :: [Inst]
   }
 
 store :: Int -> a -> [a] -> [a]
@@ -98,7 +89,7 @@ lit _ = undefined
 
 eval :: Array Int Inst -> Int -> [Node] -> [Node]
 eval insts i xs =
-  case insts ! i of
+  case trace (show $ reverse xs) $ insts ! i of
     InstHalt -> xs
     InstPush -> eval insts (i + 2) $ Node (lit $ insts ! (i + 1)) : xs
     InstCopy -> eval insts (i + 2) $ (xs !! lit (insts ! (i + 1))) : xs
@@ -123,132 +114,176 @@ run :: [Inst] -> [Node]
 run [] = undefined
 run xs = eval (listArray (0, length xs - 1) xs) 0 []
 
-append :: (a -> Int -> Compiler) -> Int -> [a] -> Compiler
-append f n0 = foldl' (\c@(Compiler n1 _) x -> c <> f x n1) (Compiler n0 [])
-
 binOpToInst :: BinOp -> Inst
 binOpToInst BinOpSub = InstSub
 
-lookupVar :: M.Map String Int -> String -> Int -> [Inst]
-lookupVar vars name n =
-  case M.lookup name vars of
-    Just x -> [InstCopy, InstLitInt $ n + x]
-    Nothing -> [PreInstLabelPush name]
+incrStackOffset :: Context -> Context
+incrStackOffset (Context stackOffset vars labels compiler) =
+  Context (succ stackOffset) vars labels compiler
 
-getLabel :: Int -> String
-getLabel = printf "_%d"
+decrStackOffset :: Context -> Context
+decrStackOffset (Context stackOffset vars labels compiler) =
+  Context (pred stackOffset) vars labels compiler
 
-compileExpr :: M.Map String Int -> AstExpr -> Int -> Int -> CompilerStack
-compileExpr _ (AstExprInt x) n l =
-  CompilerStack (Compiler l [InstPush, InstLitInt x]) $ succ n
-compileExpr vars (AstExprVar name) n l =
-  CompilerStack (Compiler l $ lookupVar vars name n) $ succ n
-compileExpr vars (AstExprBinOp op l r) n0 l0 =
-  CompilerStack
-    (Compiler l2 $ insts1 ++ insts2 ++ [binOpToInst op])
-    $ succ n0
-  where
-    (CompilerStack (Compiler l1 insts1) n1) = compileExpr vars l n0 l0
-    (CompilerStack (Compiler l2 insts2) _) = compileExpr vars r n1 l1
-compileExpr vars (AstExprCall name exprs) n0 l0 =
-  CompilerStack
-    ( Compiler (succ l3) $
-        PreInstLabelPush label :
-        insts3 ++ lookupVar vars name n3 ++ [InstJump, PreInstLabelSet label]
+setStackOffset :: Context -> Int -> Context
+setStackOffset (Context _ vars labels compiler) stackOffset =
+  Context stackOffset vars labels compiler
+
+incrLabelCount :: Context -> Context
+incrLabelCount (Context stackOffset vars labels (Compiler labelCount insts)) =
+  Context stackOffset vars labels $ Compiler (succ labelCount) insts
+
+appendContextInsts :: Context -> [Inst] -> Context
+appendContextInsts (Context stackOffset vars labels compiler) insts =
+  Context stackOffset vars labels $ appendCompilerInsts compiler insts
+
+getVarOffset :: Context -> String -> Int
+getVarOffset context name =
+  getContextStackOffset context + getContextVars context M.! name
+
+makeLabel :: Context -> String
+makeLabel = printf "_%d" . getCompilerLabelCount . getContextCompiler
+
+pushVar :: Context -> String -> [Inst]
+pushVar context name =
+  if M.member name $ getContextVars context
+    then [InstCopy, InstLitInt $ getVarOffset context name]
+    else [PreInstLabelPush name]
+
+compileExpr :: Context -> AstExpr -> Context
+compileExpr context (AstExprInt x) =
+  incrStackOffset $ appendContextInsts context [InstPush, InstLitInt x]
+compileExpr context (AstExprVar name) =
+  incrStackOffset $ appendContextInsts context $ pushVar context name
+compileExpr context (AstExprBinOp op l r) =
+  decrStackOffset $
+    appendContextInsts (compileExpr (compileExpr context l) r) [binOpToInst op]
+compileExpr context0 (AstExprCall name exprs) =
+  setStackOffset
+    ( appendContextInsts
+        context1
+        $ pushVar context1 name ++ [InstJump, PreInstLabelSet label]
     )
-    $ succ n0
+    (succ $ getContextStackOffset context0)
   where
-    label = getLabel l3
-    (CompilerStack (Compiler l3 insts3) n3) =
+    label = makeLabel context0
+    context1 =
       foldl'
-        ( \c1@(CompilerStack (Compiler l1 _) n1) x ->
-            c1 <> compileExpr vars x n1 l1
+        compileExpr
+        ( incrLabelCount $
+            incrStackOffset $
+              appendContextInsts
+                context0
+                [PreInstLabelPush label]
         )
-        -- NOTE: When compiling a `call`, we need to account for the return
-        -- address of the call on the stack, so we need to use `n0 + 1` here.
-        (CompilerStack (Compiler l0 []) $ succ n0)
         exprs
 
-compileStmt :: Scope -> AstStmt -> Int -> Compiler
-compileStmt (Scope _ vars n0) (AstStmtAssign name expr) l0 =
-  Compiler l1 $ insts1 ++ [InstStore, InstLitInt $ vars M.! name]
+compileStmt :: Context -> AstStmt -> Context
+compileStmt context (AstStmtAssign name expr) =
+  decrStackOffset $
+    appendContextInsts
+      (compileExpr context expr)
+      [InstStore, InstLitInt $ getVarOffset context name]
+compileStmt context (AstStmtIf condition body) =
+  appendContextInsts
+    ( foldl'
+        compileStmt
+        ( appendContextInsts
+            ( compileExpr
+                ( appendContextInsts
+                    (incrLabelCount $ incrStackOffset context)
+                    [PreInstLabelPush label]
+                )
+                condition
+            )
+            [InstJifz]
+            `setStackOffset` getContextStackOffset context
+        )
+        body
+    )
+    [PreInstLabelSet label]
   where
-    (CompilerStack (Compiler l1 insts1) _) =
-      compileExpr vars expr n0 l0
-compileStmt s@(Scope _ vars n0) (AstStmtIf condition body) l0 =
-  Compiler l2 $
-    PreInstLabelPush label :
-    insts1 ++ [InstJifz] ++ insts2 ++ [PreInstLabelSet label]
-  where
-    label = getLabel l0
-    (CompilerStack (Compiler l1 insts1) _) =
-      compileExpr vars condition (succ n0) $ succ l0
-    (Compiler l2 insts2) = append (compileStmt s) l1 body
-compileStmt (Scope returnLabel vars n0) (AstStmtReturn expr) l0 =
-  Compiler l1 $ insts1 ++ [PreInstLabelPush returnLabel, InstJump]
-  where
-    (CompilerStack (Compiler l1 insts1) _) = compileExpr vars expr n0 l0
+    label = makeLabel context
+compileStmt context (AstStmtReturn expr) =
+  decrStackOffset $
+    appendContextInsts
+      (compileExpr context expr)
+      [ PreInstLabelPush $ getLabelReturn $ getContextLabels context,
+        InstJump
+      ]
+
+appendCompilerInsts :: Compiler -> [Inst] -> Compiler
+appendCompilerInsts (Compiler labelCount insts0) insts1 =
+  Compiler labelCount $ insts0 ++ insts1
+
+makeReturnLabel :: String -> String
+makeReturnLabel = printf "_%s_return"
 
 getVars :: [String] -> M.Map String Int
 getVars xs = M.fromList $ zip (reverse xs) [0 ..]
 
-getReturnLabel :: String -> String
-getReturnLabel = printf "_%s_return"
-
-compileFunc :: AstFunc -> Int -> Compiler
-compileFunc (AstFunc name [] [] stmts expr) labelCount =
-  Compiler l1 $
-    PreInstLabelSet name :
-    insts0
-      ++ insts1
-      ++ [PreInstLabelSet returnLabel, InstSwap, InstJump]
+compileFunc :: Compiler -> AstFunc -> Compiler
+compileFunc compiler0 (AstFunc name [] [] body returnExpr) =
+  appendCompilerInsts
+    (getContextCompiler context2)
+    [PreInstLabelSet returnLabel, InstSwap, InstJump]
   where
-    (Compiler l0 insts0) =
-      append (compileStmt $ Scope returnLabel M.empty 0) labelCount stmts
-    (Compiler l1 insts1) = getCompiler $ compileExpr M.empty expr 0 l0
-    returnLabel = getReturnLabel name
-compileFunc (AstFunc name args locals stmts expr) labelCount =
-  Compiler l1 $
-    PreInstLabelSet name :
-    ( let n = length locals
+    returnLabel = makeReturnLabel name
+    context0 = Context 0 M.empty $ Labels returnLabel
+    context1 =
+      foldl'
+        compileStmt
+        (context0 $ appendCompilerInsts compiler0 [PreInstLabelSet name])
+        body
+    context2 = compileExpr (context0 $ getContextCompiler context1) returnExpr
+compileFunc compiler0 (AstFunc name args locals body returnExpr) =
+  appendCompilerInsts (getContextCompiler context2) $
+    PreInstLabelSet returnLabel :
+    ( let n = length args + length locals - 1
        in if n == 0
-            then []
-            else [InstRsrv, InstLitInt n]
+            then [InstStore, InstLitInt n, InstSwap, InstJump]
+            else
+              [ InstStore,
+                InstLitInt n,
+                InstDrop,
+                InstLitInt n,
+                InstSwap,
+                InstJump
+              ]
     )
-      ++ insts0
-      ++ insts1
-      ++ [PreInstLabelSet returnLabel]
-      ++ ( let n = length args + length locals - 1
-            in if n == 0
-                 then [InstStore, InstLitInt n, InstSwap, InstJump]
-                 else
-                   [ InstStore,
-                     InstLitInt n,
-                     InstDrop,
-                     InstLitInt n,
-                     InstSwap,
-                     InstJump
-                   ]
-         )
   where
-    vars = getVars $ args ++ locals
-    (Compiler l0 insts0) =
-      append (compileStmt $ Scope returnLabel vars 0) labelCount stmts
-    (Compiler l1 insts1) = getCompiler $ compileExpr vars expr 0 l0
-    returnLabel = getReturnLabel name
+    returnLabel = makeReturnLabel name
+    context0 = Context 0 (getVars $ args ++ locals) $ Labels returnLabel
+    context1 =
+      foldl'
+        compileStmt
+        ( context0 $
+            appendCompilerInsts
+              compiler0
+              $ PreInstLabelSet name :
+              ( let n = length locals
+                 in if n == 0
+                      then []
+                      else [InstRsrv, InstLitInt n]
+              )
+        )
+        body
+    context2 = compileExpr (context0 $ getContextCompiler context1) returnExpr
 
 compile :: [AstFunc] -> [Inst]
 compile =
-  ( [ PreInstLabelPush "_0",
-      PreInstLabelPush "main",
-      InstJump,
-      PreInstLabelSet "_0",
-      InstHalt
-    ]
-      ++
-  )
-    . getInsts
-    . append compileFunc 1
+  getCompilerInsts
+    . foldl'
+      compileFunc
+      ( Compiler
+          1
+          [ PreInstLabelPush "_0",
+            PreInstLabelPush "main",
+            InstJump,
+            PreInstLabelSet "_0",
+            InstHalt
+          ]
+      )
 
 weightInst :: Inst -> Int
 weightInst (PreInstLabelPush _) = 2
