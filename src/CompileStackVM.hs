@@ -159,12 +159,10 @@ compileExpr context (AstExprBinOp op l r) =
   decrStackOffset $
     appendContextInsts (compileExpr (compileExpr context l) r) [binOpToInst op]
 compileExpr context0 (AstExprCall name exprs) =
-  setStackOffset
-    ( appendContextInsts
-        context1
-        $ pushVar context1 name ++ [InstJump, PreInstLabelSet label]
-    )
-    (succ $ getContextStackOffset context0)
+  appendContextInsts
+    context1
+    (pushVar context1 name ++ [InstJump, PreInstLabelSet label])
+    `setStackOffset` succ (getContextStackOffset context0)
   where
     label = makeLabel context0
     context1 =
@@ -172,9 +170,7 @@ compileExpr context0 (AstExprCall name exprs) =
         compileExpr
         ( incrLabelCount $
             incrStackOffset $
-              appendContextInsts
-                context0
-                [PreInstLabelPush label]
+              appendContextInsts context0 [PreInstLabelPush label]
         )
         exprs
 
@@ -184,26 +180,26 @@ compileStmt context (AstStmtAssign name expr) =
     appendContextInsts
       (compileExpr context expr)
       [InstStore, InstLitInt $ getVarOffset context name]
-compileStmt context (AstStmtIf condition body) =
-  appendContextInsts
-    ( foldl'
+compileStmt context0 (AstStmtIf condition body) =
+  appendContextInsts context2 [PreInstLabelSet label]
+  where
+    label = makeLabel context0
+    context1 =
+      compileExpr
+        ( appendContextInsts
+            (incrLabelCount $ incrStackOffset context0)
+            [PreInstLabelPush label]
+        )
+        condition
+    context2 =
+      foldl'
         compileStmt
         ( appendContextInsts
-            ( compileExpr
-                ( appendContextInsts
-                    (incrLabelCount $ incrStackOffset context)
-                    [PreInstLabelPush label]
-                )
-                condition
-            )
+            context1
             [InstJifz]
-            `setStackOffset` getContextStackOffset context
+            `setStackOffset` getContextStackOffset context0
         )
         body
-    )
-    [PreInstLabelSet label]
-  where
-    label = makeLabel context
 compileStmt context (AstStmtReturn expr) =
   decrStackOffset $
     appendContextInsts
@@ -239,18 +235,17 @@ compileFunc compiler0 (AstFunc name [] [] body returnExpr) =
 compileFunc compiler0 (AstFunc name args locals body returnExpr) =
   appendCompilerInsts (getContextCompiler context2) $
     PreInstLabelSet returnLabel :
-    ( let n = length args + length locals - 1
-       in if n == 0
-            then [InstStore, InstLitInt n, InstSwap, InstJump]
-            else
-              [ InstStore,
-                InstLitInt n,
-                InstDrop,
-                InstLitInt n,
-                InstSwap,
-                InstJump
-              ]
-    )
+    let n = length args + length locals - 1
+     in if n == 0
+          then [InstStore, InstLitInt n, InstSwap, InstJump]
+          else
+            [ InstStore,
+              InstLitInt n,
+              InstDrop,
+              InstLitInt n,
+              InstSwap,
+              InstJump
+            ]
   where
     returnLabel = makeReturnLabel name
     context0 = Context 0 (getVars $ args ++ locals) $ Labels returnLabel
@@ -258,14 +253,12 @@ compileFunc compiler0 (AstFunc name args locals body returnExpr) =
       foldl'
         compileStmt
         ( context0 $
-            appendCompilerInsts
-              compiler0
-              $ PreInstLabelSet name :
-              ( let n = length locals
-                 in if n == 0
-                      then []
-                      else [InstRsrv, InstLitInt n]
-              )
+            appendCompilerInsts compiler0 $
+              PreInstLabelSet name :
+              let n = length locals
+               in if n == 0
+                    then []
+                    else [InstRsrv, InstLitInt n]
         )
         body
     context2 = compileExpr (context0 $ getContextCompiler context1) returnExpr
