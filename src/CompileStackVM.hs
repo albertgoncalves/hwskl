@@ -16,7 +16,9 @@ data Inst
   | InstSwap
   | InstJump
   | InstJifz
+  | InstAdd
   | InstSub
+  | InstEq
   | InstLitInt Int
   | PreInstLabelSet String
   | PreInstLabelPush String
@@ -28,7 +30,9 @@ instance Show Node where
   show (Node x) = show x
 
 data BinOp
-  = BinOpSub
+  = BinOpAdd
+  | BinOpSub
+  | BinOpEq
 
 data AstExpr
   = AstExprInt Int
@@ -105,9 +109,18 @@ eval insts i xs =
        in if getInt b == 0
             then eval insts (getInt a) xs'
             else eval insts (i + 1) xs'
+    InstAdd ->
+      let (a, b, xs') = pop2 xs
+       in eval insts (i + 1) (Node (getInt a + getInt b) : xs')
     InstSub ->
       let (a, b, xs') = pop2 xs
        in eval insts (i + 1) (Node (getInt a - getInt b) : xs')
+    InstEq ->
+      let (a, b, xs') = pop2 xs
+       in eval
+            insts
+            (i + 1)
+            (Node (if getInt a == getInt b then 1 else 0) : xs')
     _ -> undefined
 
 run :: [Inst] -> [Node]
@@ -115,7 +128,9 @@ run [] = undefined
 run xs = eval (listArray (0, length xs - 1) xs) 0 []
 
 binOpToInst :: BinOp -> Inst
+binOpToInst BinOpAdd = InstAdd
 binOpToInst BinOpSub = InstSub
+binOpToInst BinOpEq = InstEq
 
 incrStackOffset :: Context -> Context
 incrStackOffset (Context stackOffset vars labels compiler) =
@@ -300,60 +315,96 @@ resolve (x : xs) m = x : resolve xs m
 assemble :: [Inst] -> [Inst]
 assemble xs = resolve xs $ getLabels xs
 
+test :: Int -> [AstFunc] -> Bool
+test x = (== x) . getInt . head . run . assemble . compile
+
+program0 :: [AstFunc]
+program0 =
+  [ AstFunc
+      "f2"
+      []
+      ["x"]
+      [ AstStmtAssign
+          "x"
+          (AstExprBinOp BinOpSub (AstExprInt 3) (AstExprInt 10))
+      ]
+      (AstExprVar "x"),
+    AstFunc
+      "f1"
+      ["x", "y"]
+      ["z", "u"]
+      [ AstStmtAssign
+          "x"
+          (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
+        AstStmtAssign
+          "y"
+          (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprCall "f2" [])),
+        AstStmtIf
+          (AstExprVar "x")
+          [AstStmtAssign "x" (AstExprVar "y")],
+        AstStmtAssign
+          "u"
+          ( AstExprBinOp
+              BinOpSub
+              (AstExprBinOp BinOpSub (AstExprVar "f2") (AstExprInt 2))
+              (AstExprInt $ -2)
+          ),
+        AstStmtAssign
+          "z"
+          ( AstExprBinOp
+              BinOpSub
+              (AstExprVar "x")
+              (AstExprCall "u" [])
+          ),
+        AstStmtReturn
+          (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 2))
+      ]
+      (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
+    AstFunc
+      "f0"
+      ["x"]
+      ["y"]
+      [ AstStmtIf (AstExprVar "x") [AstStmtReturn $ AstExprInt 0],
+        AstStmtAssign "y" (AstExprVar "f1")
+      ]
+      (AstExprCall "y" [AstExprVar "x", AstExprInt 3]),
+    AstFunc
+      "main"
+      []
+      []
+      []
+      (AstExprCall "f0" [AstExprInt 0])
+  ]
+
+program1 :: [AstFunc]
+program1 =
+  [ AstFunc
+      "fib"
+      ["x"]
+      ["y"]
+      [ AstStmtIf
+          (AstExprBinOp BinOpEq (AstExprVar "x") (AstExprInt 0))
+          [AstStmtReturn (AstExprInt 0)],
+        AstStmtIf
+          (AstExprBinOp BinOpEq (AstExprVar "x") (AstExprInt 1))
+          [AstStmtReturn (AstExprInt 1)],
+        AstStmtAssign
+          "y"
+          ( AstExprBinOp
+              BinOpAdd
+              ( AstExprCall
+                  "fib"
+                  [AstExprBinOp BinOpSub (AstExprVar "x") (AstExprInt 2)]
+              )
+              ( AstExprCall
+                  "fib"
+                  [AstExprBinOp BinOpSub (AstExprVar "x") (AstExprInt 1)]
+              )
+          )
+      ]
+      (AstExprVar "y"),
+    AstFunc "main" [] [] [] (AstExprCall "fib" [AstExprInt 10])
+  ]
+
 main :: IO ()
-main =
-  (print . head . run . assemble . compile)
-    [ AstFunc
-        "f2"
-        []
-        ["x"]
-        [ AstStmtAssign
-            "x"
-            (AstExprBinOp BinOpSub (AstExprInt 3) (AstExprInt 10))
-        ]
-        (AstExprVar "x"),
-      AstFunc
-        "f1"
-        ["x", "y"]
-        ["z", "u"]
-        [ AstStmtAssign
-            "x"
-            (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
-          AstStmtAssign
-            "y"
-            (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprCall "f2" [])),
-          AstStmtIf
-            (AstExprVar "x")
-            [AstStmtAssign "x" (AstExprVar "y")],
-          AstStmtAssign
-            "u"
-            ( AstExprBinOp
-                BinOpSub
-                (AstExprBinOp BinOpSub (AstExprVar "f2") (AstExprInt 2))
-                (AstExprInt $ -2)
-            ),
-          AstStmtAssign
-            "z"
-            ( AstExprBinOp
-                BinOpSub
-                (AstExprVar "x")
-                (AstExprCall "u" [])
-            ),
-          AstStmtReturn (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 2))
-        ]
-        (AstExprBinOp BinOpSub (AstExprVar "z") (AstExprInt 1)),
-      AstFunc
-        "f0"
-        ["x"]
-        ["y"]
-        [ AstStmtIf (AstExprVar "x") [AstStmtReturn $ AstExprInt 0],
-          AstStmtAssign "y" (AstExprVar "f1")
-        ]
-        (AstExprCall "y" [AstExprVar "x", AstExprInt 3]),
-      AstFunc
-        "main"
-        []
-        []
-        []
-        (AstExprCall "f0" [AstExprInt 0])
-    ]
+main = mapM_ print [test 9 program0, test 55 program1]
