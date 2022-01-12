@@ -43,6 +43,9 @@ data AstExpr
 data AstStmt
   = AstStmtAssign String AstExpr
   | AstStmtIf AstExpr [AstStmt]
+  | AstStmtLoop [AstStmt]
+  | AstStmtBreak Int
+  | AstStmtContinue Int
   | AstStmtReturn AstExpr
 
 data AstFunc = AstFunc
@@ -53,8 +56,14 @@ data AstFunc = AstFunc
     getAstFuncRet :: AstExpr
   }
 
-newtype Labels = Labels
-  { getLabelReturn :: String
+data LabelLoop = LabelLoop
+  { getLabelContinue :: String,
+    getLabelBreak :: String
+  }
+
+data Labels = Labels
+  { getLabelReturn :: String,
+    getLabelLoop :: [LabelLoop]
   }
 
 data Context = Context
@@ -152,6 +161,28 @@ appendContextInsts :: Context -> [Inst] -> Context
 appendContextInsts (Context stackOffset vars labels compiler) insts =
   Context stackOffset vars labels $ appendCompilerInsts compiler insts
 
+pushLabelLoop :: Context -> LabelLoop -> Context
+pushLabelLoop
+  (Context stackOffset vars (Labels labelReturn labelLoops) compiler)
+  x =
+    Context
+      stackOffset
+      vars
+      (Labels labelReturn $ x : labelLoops)
+      compiler
+
+popLabelLoop :: Context -> Int -> (LabelLoop, Context)
+popLabelLoop
+  (Context stackOffset vars (Labels labelReturn (x : labelLoops)) compiler)
+  n
+    | n == 0 = (x, context)
+    | n < 0 = undefined
+    | otherwise = popLabelLoop context (n - 1)
+    where
+      context =
+        Context stackOffset vars (Labels labelReturn labelLoops) compiler
+popLabelLoop _ _ = undefined
+
 getVarOffset :: Context -> String -> Int
 getVarOffset context name =
   getContextStackOffset context + getContextVars context M.! name
@@ -222,6 +253,30 @@ compileStmt context (AstStmtReturn expr) =
       [ PreInstLabelPush $ getLabelReturn $ getContextLabels context,
         InstJump
       ]
+compileStmt context0 (AstStmtLoop body) =
+  appendContextInsts
+    ( foldl'
+        compileStmt
+        (appendContextInsts context2 [PreInstLabelSet labelContinue])
+        body
+    )
+    [PreInstLabelPush labelContinue, InstJump, PreInstLabelSet labelBreak]
+  where
+    context1 = incrLabelCount context0
+    context2 =
+      incrLabelCount $
+        pushLabelLoop context1 $
+          LabelLoop labelContinue labelBreak
+    labelContinue = makeLabel context0 ++ "_continue"
+    labelBreak = makeLabel context1 ++ "_break"
+compileStmt context0 (AstStmtBreak n) =
+  appendContextInsts context1 [PreInstLabelPush labelBreak, InstJump]
+  where
+    (LabelLoop _ labelBreak, context1) = popLabelLoop context0 n
+compileStmt context0 (AstStmtContinue n) =
+  appendContextInsts context1 [PreInstLabelPush labelContinue, InstJump]
+  where
+    (LabelLoop labelContinue _, context1) = popLabelLoop context0 n
 
 appendCompilerInsts :: Compiler -> [Inst] -> Compiler
 appendCompilerInsts (Compiler labelCount insts0) insts1 =
@@ -240,7 +295,7 @@ compileFunc compiler0 (AstFunc name [] [] body returnExpr) =
     [PreInstLabelSet returnLabel, InstSwap, InstJump]
   where
     returnLabel = makeReturnLabel name
-    context0 = Context 0 M.empty $ Labels returnLabel
+    context0 = Context 0 M.empty $ Labels returnLabel []
     context1 =
       foldl'
         compileStmt
@@ -263,7 +318,7 @@ compileFunc compiler0 (AstFunc name args locals body returnExpr) =
             ]
   where
     returnLabel = makeReturnLabel name
-    context0 = Context 0 (getVars $ args ++ locals) $ Labels returnLabel
+    context0 = Context 0 (getVars $ args ++ locals) $ Labels returnLabel []
     context1 =
       foldl'
         compileStmt
@@ -406,5 +461,84 @@ program1 =
     AstFunc "main" [] [] [] (AstExprCall "fib" [AstExprInt 10])
   ]
 
+program2 :: [AstFunc]
+program2 =
+  [ AstFunc
+      "f"
+      ["x", "y"]
+      ["i"]
+      [ AstStmtAssign "i" (AstExprInt 0),
+        AstStmtLoop
+          [ AstStmtIf
+              (AstExprBinOp BinOpEq (AstExprVar "i") (AstExprInt 10))
+              [AstStmtBreak 0],
+            AstStmtAssign
+              "x"
+              (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
+            AstStmtAssign
+              "y"
+              (AstExprBinOp BinOpSub (AstExprVar "y") (AstExprVar "x")),
+            AstStmtAssign
+              "i"
+              (AstExprBinOp BinOpAdd (AstExprVar "i") (AstExprInt 1))
+          ]
+      ]
+      (AstExprBinOp BinOpSub (AstExprVar "x") (AstExprVar "y")),
+    AstFunc
+      "main"
+      []
+      []
+      []
+      ( AstExprBinOp
+          BinOpSub
+          (AstExprCall "f" [AstExprInt 1, AstExprInt 2])
+          (AstExprCall "f" [AstExprInt 3, AstExprInt 1])
+      )
+  ]
+
+program3 :: [AstFunc]
+program3 =
+  [ AstFunc
+      "main"
+      []
+      ["x", "i"]
+      [ AstStmtAssign "i" (AstExprInt 0),
+        AstStmtLoop
+          [ AstStmtLoop
+              [ AstStmtIf
+                  (AstExprBinOp BinOpEq (AstExprVar "i") (AstExprInt 10))
+                  [ AstStmtAssign "x" (AstExprCall "f0" []),
+                    AstStmtBreak 1
+                  ],
+                AstStmtAssign "x" (AstExprInt 2),
+                AstStmtAssign
+                  "i"
+                  (AstExprBinOp BinOpAdd (AstExprVar "i") (AstExprInt 1))
+              ],
+            AstStmtAssign "x" (AstExprInt 3)
+          ]
+      ]
+      (AstExprVar "x"),
+    AstFunc
+      "f1"
+      []
+      []
+      []
+      (AstExprInt 1),
+    AstFunc
+      "f0"
+      []
+      []
+      []
+      (AstExprCall "f1" [])
+  ]
+
 main :: IO ()
-main = mapM_ print [test 9 program0, test 55 program1]
+main =
+  mapM_
+    print
+    [ test 9 program0,
+      test 55 program1,
+      test (-39603) program2,
+      test 1 program3
+    ]
