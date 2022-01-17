@@ -25,6 +25,7 @@ data BinOp
   | BinOpSub
   | BinOpMul
   | BinOpDiv
+  | BinOpEq
 
 data Ast
   = AstInt Int
@@ -42,6 +43,7 @@ instance Show BinOp where
   show BinOpSub = "-"
   show BinOpMul = "*"
   show BinOpDiv = "/"
+  show BinOpEq = "=="
 
 instance Show Ast where
   show (AstInt x) = show x
@@ -71,10 +73,11 @@ binOp =
     foldr1 (<|>) $
       map
         f
-        [ (BinOpAdd, '+'),
-          (BinOpSub, '-'),
-          (BinOpMul, '*'),
-          (BinOpDiv, '/')
+        [ (BinOpAdd, "+"),
+          (BinOpSub, "-"),
+          (BinOpMul, "*"),
+          (BinOpDiv, "/"),
+          (BinOpEq, "==")
         ]
   where
     f (op, s) = AstBinOp op <$> expr <*> (string s *> expr)
@@ -99,4 +102,5 @@ parse = map fst . filter (null . snd) . readP_to_S (expr <* eof)
 main :: IO ()
 main =
   mapM_ print $
-    parse "(~ ( f0(-1, y   ,\n 0) * ( ( !((\n~-4 ) /(x_))) + 1) )\n)"
+    parse
+      "(~ ( f0((-1 --1), y   ,\n 0 , (1 == 1))*( ( !((\n~-4 ) /(x_)))+ 1) )\n)"
