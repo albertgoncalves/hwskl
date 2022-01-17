@@ -436,23 +436,24 @@ program1 =
   [ AstFunc
       "fib"
       ["x"]
-      ["y"]
+      ["f", "y"]
       [ AstStmtIf
           (AstExprBinOp BinOpEq (AstExprVar "x") (AstExprInt 0))
           [AstStmtReturn (AstExprInt 0)],
         AstStmtIf
           (AstExprBinOp BinOpEq (AstExprVar "x") (AstExprInt 1))
           [AstStmtReturn (AstExprInt 1)],
+        AstStmtAssign "f" (AstExprVar "fib"),
         AstStmtAssign
           "y"
           ( AstExprBinOp
               BinOpAdd
               ( AstExprCall
-                  "fib"
+                  "f"
                   [AstExprBinOp BinOpSub (AstExprVar "x") (AstExprInt 2)]
               )
               ( AstExprCall
-                  "fib"
+                  "f"
                   [AstExprBinOp BinOpSub (AstExprVar "x") (AstExprInt 1)]
               )
           )
