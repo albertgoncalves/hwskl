@@ -54,13 +54,16 @@ integer :: ReadP Ast
 integer =
   (AstInt .) . (read .) . (++) <$> option "" (string "-") <*> munch1 isDigit
 
+spaces :: ReadP a -> ReadP a
+spaces p = skipSpaces *> p <* skipSpaces
+
 parens :: ReadP a -> ReadP a
-parens p = char '(' *> skipSpaces *> p <* skipSpaces <* char ')'
+parens p = char '(' *> spaces p <* char ')'
 
 unOp :: ReadP Ast
 unOp = parens $ foldr1 (<|>) $ map f [(UnOpBang, '!'), (UnOpTilda, '~')]
   where
-    f (op, c) = AstUnOp op <$> (char c *> skipSpaces *> expr)
+    f (op, c) = AstUnOp op <$> (char c *> expr)
 
 binOp :: ReadP Ast
 binOp =
@@ -74,8 +77,7 @@ binOp =
           (BinOpDiv, '/')
         ]
   where
-    f (op, c) =
-      AstBinOp op <$> expr <*> (skipSpaces *> char c *> skipSpaces *> expr)
+    f (op, s) = AstBinOp op <$> expr <*> (string s *> expr)
 
 ident :: ReadP String
 ident = (:) <$> satisfy isAlpha <*> munch f
@@ -86,13 +88,10 @@ var :: ReadP Ast
 var = AstVar <$> ident
 
 call :: ReadP Ast
-call =
-  AstCall
-    <$> ident
-    <*> parens (sepBy expr $ skipSpaces *> char ',' *> skipSpaces)
+call = AstCall <$> ident <*> parens (sepBy expr $ char ',')
 
 expr :: ReadP Ast
-expr = integer <|> var <|> call <|> unOp <|> binOp <|> parens expr
+expr = spaces $ foldr1 (<|>) [integer, var, call, unOp, binOp, parens expr]
 
 parse :: String -> [Ast]
 parse = map fst . filter (null . snd) . readP_to_S (expr <* eof)
