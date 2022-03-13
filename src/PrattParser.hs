@@ -69,6 +69,9 @@ precInfix x = Left x
 precParen :: Int
 precParen = 11
 
+precBracket :: Int
+precBracket = 11
+
 parseLeft :: [Token] -> Either Token (Ast, [Token])
 parseLeft [] = Left TokenEnd
 parseLeft (TokenLParen : xs0) = do
@@ -109,7 +112,7 @@ parseRight expr xs0'@(TokenLParen : xs0) prec =
         (_, x : _) -> Left x
         (_, []) -> Left TokenEnd
 parseRight expr xs0'@(TokenLBracket : xs0) prec =
-  if precParen < prec
+  if precBracket < prec
     then Right (expr, xs0')
     else do
       r <- parseArgs xs0
