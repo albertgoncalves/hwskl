@@ -2,58 +2,46 @@ import Data.List (unfoldr)
 
 {- NOTE: See `http://typeocaml.com/2015/03/12/heap-leftist-tree/`. -}
 
-data Tree a
+data Heap k v
   = Leaf
-  | Node a Weight (Tree a) (Tree a)
+  | Node Int k v (Heap k v) (Heap k v)
   deriving (Show)
 
-{- NOTE: `Weight` captures the distance between the `Node` and the right-most
- - `Leaf`.
- -}
-
-newtype Weight = Weight {getWeight :: Word}
-  deriving (Eq, Ord, Show)
-
-instance Num Weight where
-  l + r = Weight $ getWeight l + getWeight r
-  l * r = Weight $ getWeight l * getWeight r
-  l - r = Weight $ getWeight l - getWeight r
-  abs = Weight . abs . getWeight
-  negate = Weight . negate . getWeight
-  signum = Weight . signum . getWeight
-  fromInteger = Weight . fromIntegral
-
-class Heap a where
-  cmp :: a -> a -> Bool
-
-weight :: Tree a -> Weight
+weight :: Heap k v -> Int
 weight Leaf = 0
-weight (Node _ w _ _) = w
+weight (Node w _ _ _ _) = w
 
-merge :: Heap a => Tree a -> Tree a -> Tree a
+merge :: Ord k => Heap k v -> Heap k v -> Heap k v
 merge l Leaf = l
 merge Leaf r = r
-merge t1@(Node k1 _ l r) t2@(Node k2 _ _ _)
-  | k2 `cmp` k1 = merge t2 t1
-  | wl < wr' = Node k1 (wl + 1) r' l
-  | otherwise = Node k1 (wr' + 1) l r'
+merge t1@(Node _ k1 v1 l r) t2@(Node _ k2 _ _ _)
+  | k2 < k1 = merge t2 t1
+  | wl < wr' = Node (wl + 1) k1 v1 r' l
+  | otherwise = Node (wr' + 1) k1 v1 l r'
   where
     r' = merge r t2
     wl = weight l
     wr' = weight r'
 
-pop :: Heap a => Tree a -> Maybe (a, Tree a)
+pop :: Ord k => Heap k v -> Maybe ((k, v), Heap k v)
 pop Leaf = Nothing
-pop (Node x _ l r) = Just (x, merge l r)
+pop (Node _ n x l r) = Just ((n, x), merge l r)
 
-node :: a -> Tree a
-node x = Node x 1 Leaf Leaf
+node :: k -> v -> Heap k v
+node n x = Node 1 n x Leaf Leaf
 
-fromList :: Heap a => [a] -> Tree a
-fromList = foldr (merge . node) Leaf
-
-instance Heap Int where
-  cmp = (<)
+fromList :: Ord k => [(k, v)] -> Heap k v
+fromList = foldr (merge . uncurry node) Leaf
 
 main :: IO ()
-main = print $ unfoldr pop $ fromList [5, 3, 8, 1, -3, 6, 7, 0 :: Int]
+main =
+  print $
+    unfoldr pop $
+      fromList
+        [ (5, 'a') :: (Int, Char),
+          (3, 'b'),
+          (8, 'c'),
+          (1, 'd'),
+          (-3, 'e'),
+          (1, 'f')
+        ]
