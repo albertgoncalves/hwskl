@@ -97,7 +97,15 @@ extractFunc k expr = (k, [], expr)
 ast :: [Ast]
 ast =
   [ AstAssign "f" (AstFn ["x"] [AstFn [] [AstVar "x"]]),
-    AstAssign "g" (AstFn [] [AstInt 0]),
+    AstAssign
+      "g"
+      ( AstFn
+          []
+          [ AstAssign "x" (AstInt 0),
+            AstUpdate "x" (AstInt $ -1),
+            AstVar "x"
+          ]
+      ),
     AstCall [AstCall [AstVar "f"] [AstCall [AstVar "g"] []]] []
   ]
 
