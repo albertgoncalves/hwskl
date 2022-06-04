@@ -18,9 +18,9 @@ instance Show Ast where
     "(\\" ++ unwords args ++ " -> " ++ intercalate "; " (map show body) ++ ")"
   show (AstAssign var expr) = var ++ " := " ++ show expr
   show (AstCall func []) =
-    "((" ++ unwords (map show func) ++ ") ())"
+    "(" ++ unwords (map show func) ++ ") ()"
   show (AstCall func args) =
-    "((" ++ unwords (map show func) ++ ") " ++ unwords (map show args) ++ ")"
+    "(" ++ unwords (map show func) ++ ") " ++ unwords (map show args)
   show (AstPair expr0 expr1) = "(" ++ show expr0 ++ ", " ++ show expr1 ++ ")"
 
 scopeLabel :: Int -> String
