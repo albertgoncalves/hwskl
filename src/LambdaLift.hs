@@ -8,6 +8,7 @@ data Ast
   | AstFn [String] [Ast]
   | AstCall [Ast] [Ast]
   | AstAssign String Ast
+  | AstUpdate String Ast
   | AstPair Ast Ast
 
 instance Show Ast where
@@ -17,6 +18,7 @@ instance Show Ast where
   show (AstFn args body) =
     printf "(\\%s -> %s)" (unwords args) (intercalate "; " (map show body))
   show (AstAssign var expr) = printf "%s := %s" var (show expr)
+  show (AstUpdate var expr) = printf "%s = %s" var (show expr)
   show (AstCall func []) = printf "((%s) ())" (unwords $ map show func)
   show (AstCall func args) =
     printf "((%s) %s)" (unwords $ map show func) (unwords $ map show args)
@@ -50,6 +52,10 @@ injectScope scope _ (AstVar var) =
 injectScope scope k (AstAssign var expr) =
   AstCall
     [AstVar "@insertScope"]
+    [AstVar scope, AstString var, injectScope scope k expr]
+injectScope scope k (AstUpdate var expr) =
+  AstCall
+    [AstVar "@updateScope"]
     [AstVar scope, AstString var, injectScope scope k expr]
 injectScope scope k (AstCall func args) =
   AstCall (map (injectScope scope k) func) (map (injectScope scope k) args)
