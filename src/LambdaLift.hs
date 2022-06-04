@@ -15,13 +15,12 @@ instance Show Ast where
   show (AstString str) = show str
   show (AstVar var) = var
   show (AstFn args body) =
-    "(\\" ++ unwords args ++ " -> " ++ intercalate "; " (map show body) ++ ")"
-  show (AstAssign var expr) = var ++ " := " ++ show expr
-  show (AstCall func []) =
-    "(" ++ unwords (map show func) ++ ") ()"
+    printf "(\\%s -> %s)" (unwords args) (intercalate "; " (map show body))
+  show (AstAssign var expr) = printf "%s := %s" var (show expr)
+  show (AstCall func []) = printf "((%s) ())" (unwords $ map show func)
   show (AstCall func args) =
-    "(" ++ unwords (map show func) ++ ") " ++ unwords (map show args)
-  show (AstPair expr0 expr1) = "(" ++ show expr0 ++ ", " ++ show expr1 ++ ")"
+    printf "((%s) %s)" (unwords $ map show func) (unwords $ map show args)
+  show (AstPair expr0 expr1) = printf "(%s, %s)" (show expr0) (show expr1)
 
 scopeLabel :: Int -> String
 scopeLabel = printf "_s%d_"
