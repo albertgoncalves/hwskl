@@ -112,9 +112,9 @@ ast =
 main :: IO ()
 main =
   mapM_
-    (putStrLn . ("\n" ++) . intercalate ";\n")
-    [ map show ast,
-      map show $ map (uncurry AstAssign) funcs ++ exprs
+    (putStrLn . ("\n" ++) . intercalate ";\n" . map show)
+    [ ast,
+      map (uncurry AstAssign) funcs ++ exprs
     ]
   where
     (_, funcs, exprs) = extractFuncs 0 $ topScope ast
