@@ -94,6 +94,11 @@ extractFunc k0 (AstPair l0 r0) = (k2, funcs1 ++ funcs2, AstPair l1 r1)
     (k2, funcs2, r1) = extractFunc k1 r0
 extractFunc k expr = (k, [], expr)
 
+lambdaLift :: [Ast] -> [Ast]
+lambdaLift exprs0 = map (uncurry AstAssign) funcs ++ exprs1
+  where
+    (_, funcs, exprs1) = extractFuncs 0 $ topScope exprs0
+
 ast :: [Ast]
 ast =
   [ AstAssign "f" (AstFn ["x"] [AstFn [] [AstVar "x"]]),
@@ -113,8 +118,4 @@ main :: IO ()
 main =
   mapM_
     (putStrLn . ("\n" ++) . intercalate ";\n" . map show)
-    [ ast,
-      map (uncurry AstAssign) funcs ++ exprs
-    ]
-  where
-    (_, funcs, exprs) = extractFuncs 0 $ topScope ast
+    [ast, lambdaLift ast]
