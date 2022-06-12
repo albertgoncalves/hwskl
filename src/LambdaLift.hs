@@ -36,12 +36,19 @@ topScope =
     k = 0
     scope = scopeLabel k
 
-innerScope :: String -> Int -> [Ast] -> [Ast]
-innerScope parentScope k =
-  (AstAssign scope (AstCall [AstVar "@newScopeFrom"] [AstVar parentScope]) :)
-    . map (injectScope scope (succ k))
+innerScope :: String -> Int -> [String] -> [Ast] -> [Ast]
+innerScope parentScope k args = (prelude ++) . map (injectScope scope (succ k))
   where
     scope = scopeLabel k
+    prelude =
+      AstAssign scope (AstCall [AstVar "@newScopeFrom"] [AstVar parentScope]) :
+      map
+        ( \arg ->
+            AstCall
+              [AstVar "@insertScope"]
+              [AstVar scope, AstString arg, AstVar arg]
+        )
+        args
 
 injectScope :: String -> Int -> Ast -> Ast
 injectScope _ _ (AstPair _ _) = undefined
@@ -62,7 +69,7 @@ injectScope scope k (AstCall func args) =
 injectScope scope k (AstFn args body) =
   AstPair
     (AstVar scope)
-    (AstFn (scope : args) (innerScope scope k body))
+    (AstFn (scope : args) (innerScope scope k args body))
 
 funcLabel :: Int -> String
 funcLabel = printf "_f%d_"
