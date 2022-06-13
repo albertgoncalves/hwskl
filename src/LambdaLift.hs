@@ -6,7 +6,7 @@ data Ast
   | AstString String
   | AstVar String
   | AstFn [String] [Ast]
-  | AstCall [Ast] [Ast]
+  | AstCall Ast [Ast]
   | AstAssign String Ast
   | AstUpdate String Ast
   | AstPair Ast Ast
@@ -19,9 +19,9 @@ instance Show Ast where
     printf "(\\%s -> %s)" (unwords args) (intercalate "; " (map show body))
   show (AstAssign var expr) = printf "%s := %s" var (show expr)
   show (AstUpdate var expr) = printf "%s = %s" var (show expr)
-  show (AstCall func []) = printf "((%s) ())" (unwords $ map show func)
+  show (AstCall func []) = printf "(%s ())" (show func)
   show (AstCall func args) =
-    printf "((%s) %s)" (unwords $ map show func) (unwords $ map show args)
+    printf "(%s %s)" (show func) (unwords $ map show args)
   show (AstPair expr0 expr1) = printf "(%s, %s)" (show expr0) (show expr1)
 
 scopeLabel :: Int -> String
@@ -29,7 +29,7 @@ scopeLabel = printf "_s%d_"
 
 topScope :: [Ast] -> [Ast]
 topScope =
-  (AstAssign scope (AstCall [AstVar "@newScope"] []) :)
+  (AstAssign scope (AstCall (AstVar "@newScope") []) :)
     . map (injectScope scope (succ k))
   where
     k :: Int
@@ -41,11 +41,11 @@ innerScope parentScope k args = (prelude ++) . map (injectScope scope (succ k))
   where
     scope = scopeLabel k
     prelude =
-      AstAssign scope (AstCall [AstVar "@newScopeFrom"] [AstVar parentScope]) :
+      AstAssign scope (AstCall (AstVar "@newScopeFrom") [AstVar parentScope]) :
       map
         ( \arg ->
             AstCall
-              [AstVar "@insertScope"]
+              (AstVar "@insertScope")
               [AstVar scope, AstString arg, AstVar arg]
         )
         args
@@ -55,17 +55,17 @@ injectScope _ _ (AstPair _ _) = undefined
 injectScope _ _ int@(AstInt _) = int
 injectScope _ _ str@(AstString _) = str
 injectScope scope _ (AstVar var) =
-  AstCall [AstVar "@lookupScope"] [AstVar scope, AstString var]
+  AstCall (AstVar "@lookupScope") [AstVar scope, AstString var]
 injectScope scope k (AstAssign var expr) =
   AstCall
-    [AstVar "@insertScope"]
+    (AstVar "@insertScope")
     [AstVar scope, AstString var, injectScope scope k expr]
 injectScope scope k (AstUpdate var expr) =
   AstCall
-    [AstVar "@updateScope"]
+    (AstVar "@updateScope")
     [AstVar scope, AstString var, injectScope scope k expr]
 injectScope scope k (AstCall func args) =
-  AstCall (map (injectScope scope k) func) (map (injectScope scope k) args)
+  AstCall (injectScope scope k func) (map (injectScope scope k) args)
 injectScope scope k (AstFn args body) =
   AstPair
     (AstVar scope)
@@ -90,7 +90,7 @@ extractFunc k0 (AstFn args body0) =
 extractFunc k0 (AstCall func0 args0) =
   (k2, funcs1 ++ funcs2, AstCall func1 args1)
   where
-    (k1, funcs1, func1) = extractFuncs k0 func0
+    (k1, funcs1, func1) = extractFunc k0 func0
     (k2, funcs2, args1) = extractFuncs k1 args0
 extractFunc k0 (AstAssign var expr0) = (k1, funcs, AstAssign var expr1)
   where
@@ -118,11 +118,11 @@ ast =
             AstVar "x"
           ]
       ),
-    AstCall [AstCall [AstVar "f"] [AstCall [AstVar "g"] []]] []
+    AstCall (AstCall (AstVar "f") [AstCall (AstVar "g") []]) []
   ]
 
 main :: IO ()
 main =
   mapM_
     (putStrLn . ("\n" ++) . intercalate ";\n" . map show)
-    [ast, lambdaLift ast]
+    [ast, topScope ast, lambdaLift ast]
