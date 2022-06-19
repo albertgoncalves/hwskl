@@ -1,5 +1,5 @@
 import Data.Char (ord)
-import Data.List (elemIndex, foldl', intercalate)
+import Data.List (elemIndex, intercalate)
 import Text.Printf (printf)
 
 data Intrin
@@ -42,10 +42,10 @@ argRegs = [RegRDI, RegRSI, RegRDX, RegR10, RegR8, RegR9]
 labelString :: Int -> String
 labelString = printf "_s%d_"
 
-compile :: [Local] -> [String] -> Expr -> ([Local], [String], [Asm])
-compile locals strings (ExprI64 i) =
+compileExpr :: [Local] -> [String] -> Expr -> ([Local], [String], [Asm])
+compileExpr locals strings (ExprI64 i) =
   (locals, strings, [printf "\tpush %d" i])
-compile locals strings (ExprStr s) =
+compileExpr locals strings (ExprStr s) =
   case elemIndex s strings of
     Nothing ->
       ( locals,
@@ -57,7 +57,7 @@ compile locals strings (ExprStr s) =
         strings,
         [printf "\tpush %s" $ labelString $ length strings - n]
       )
-compile locals strings (ExprVar v) =
+compileExpr locals strings (ExprVar v) =
   case elemIndex v locals of
     Nothing -> undefined
     Just n ->
@@ -65,33 +65,67 @@ compile locals strings (ExprVar v) =
         strings,
         [printf "\tpush qword [rbp - %d]" $ (length locals - n) * 8]
       )
-compile locals0 strings0 (ExprAssign var expr) = (var : locals1, strings1, asm)
+compileExpr locals0 strings0 (ExprAssign var expr) =
+  (var : locals1, strings1, asm)
   where
-    (locals1, strings1, asm) = compile locals0 strings0 expr
-compile locals0 strings0 (ExprCall (LabelFunc label) exprs) =
-  (locals1, strings1, "" : printf "\tcall %s" label : asm)
+    (locals1, strings1, asm) = compileExpr locals0 strings0 expr
+compileExpr locals0 strings0 (ExprCall (LabelFunc label) exprs) =
+  (locals1, strings1, asm ++ [printf "\tcall %s" label, "\tpush rax", ""])
   where
     (locals1, strings1, asm) = compileArgs argRegs locals0 strings0 exprs
-compile locals0 strings0 (ExprCall (LabelIntrin intrin) exprs) =
-  (locals1, strings1, compileIntrin intrin ++ asm)
+compileExpr locals0 strings0 (ExprCall (LabelIntrin intrin) exprs) =
+  (locals1, strings1, asm ++ compileIntrin intrin)
   where
     (locals1, strings1, asm) = compileArgs argRegs locals0 strings0 exprs
 
+compileExprs :: [Local] -> [String] -> [Expr] -> ([Local], [String], [Asm])
+compileExprs locals strings [] = (locals, strings, [])
+compileExprs locals0 strings0 (expr : exprs) =
+  (locals2, strings2, asm1 ++ asm2)
+  where
+    (locals2, strings2, asm2) = compileExprs locals1 strings1 exprs
+    (locals1, strings1, asm1) = compileExpr locals0 strings0 expr
+
 compileIntrin :: Intrin -> [Asm]
-compileIntrin IntrinPrintf = ["", "\tcall printf", "\txor eax, eax"]
+compileIntrin IntrinPrintf = ["\txor eax, eax", "\tcall printf", ""]
 
 compileArgs ::
   [Reg] -> [Local] -> [String] -> [Expr] -> ([Local], [String], [Asm])
 compileArgs [] _ _ _ = undefined
 compileArgs _ locals strings [] = (locals, strings, [])
 compileArgs (reg : regs) locals0 strings0 (expr : exprs) =
-  (locals2, strings2, asm1 ++ [printf "\tpop %s" $ show reg] ++ asm0)
+  (locals2, strings2, asm0 ++ [printf "\tpop %s" $ show reg] ++ asm1)
   where
-    (locals1, strings1, asm0) = compile locals0 strings0 expr
+    (locals1, strings1, asm0) = compileExpr locals0 strings0 expr
     (locals2, strings2, asm1) = compileArgs regs locals1 strings1 exprs
 
-dataHeader :: [Asm]
-dataHeader = ["section '.data' writeable"]
+compileFunc :: [String] -> String -> [Expr] -> ([String], [Asm])
+compileFunc strings0 label exprs =
+  ( strings1,
+    [ "",
+      printf "%s:" label
+    ]
+      ++ [ "\tpush rbp",
+           "\tmov rbp, rsp",
+           ""
+         ]
+      ++ asm
+      ++ [ "\tpop rax",
+           "",
+           "\tmov rsp, rbp",
+           "\tpop rbp",
+           "\tret"
+         ]
+  )
+  where
+    (_, strings1, asm) = compileExprs [] strings0 exprs
+
+compileFuncs :: [String] -> [(String, [Expr])] -> ([String], [Asm])
+compileFuncs strings [] = (strings, [])
+compileFuncs strings0 ((label, exprs) : fs) = (strings2, ast1 ++ ast2)
+  where
+    (strings2, ast2) = compileFuncs strings1 fs
+    (strings1, ast1) = compileFunc strings0 label exprs
 
 compileStrings :: [String] -> [Asm]
 compileStrings =
@@ -101,73 +135,49 @@ compileStrings =
     . map (intercalate "," . map (show . ord))
     . reverse
 
-fileHeader :: [Asm]
-fileHeader =
-  [ "format ELF64",
-    "public _start",
-    "extrn printf"
-  ]
-
-funcHeader :: [Asm]
-funcHeader =
-  [ "\tpush rbp",
-    "\tmov rbp, rsp",
-    ""
-  ]
-
-funcFooter :: [Asm]
-funcFooter =
-  [ "\tmov rsp, rbp",
-    "\tpop rbp",
-    ""
-  ]
-
-instHeader :: [Asm]
-instHeader =
-  [ "section '.text' executable",
-    "_start:"
-  ]
-
-instFooter :: [Asm]
-instFooter =
-  [ "\txor edi, edi",
-    "\tmov eax, 60",
-    "\tsyscall"
-  ]
-
-compileAll :: [Expr] -> [Asm]
-compileAll exprs =
-  foldr1
-    (++)
-    [ fileHeader,
-      [""],
-      dataHeader,
-      compileStrings strings,
-      [""],
-      instHeader,
-      funcHeader,
-      reverse asm,
-      funcFooter,
-      instFooter
-    ]
-  where
-    f :: ([Local], [String], [Asm]) -> Expr -> ([Local], [String], [Asm])
-    f (locals0, strings0, asm0) expr = (locals1, strings1, asm1 ++ asm0)
-      where
-        (locals1, strings1, asm1) = compile locals0 strings0 expr
-    (_, strings, asm) = foldl' f ([], [], []) exprs
-
-ast :: [Expr]
+ast :: [(String, [Expr])]
 ast =
-  [ ExprAssign "x" (ExprI64 $ -123),
-    ExprCall (LabelIntrin IntrinPrintf) [ExprStr "Hello, world!\n"],
-    ExprAssign "y" (ExprI64 456),
-    ExprCall
-      (LabelIntrin IntrinPrintf)
-      [ExprStr "%d %d\n", ExprVar "x", ExprVar "y"],
-    ExprAssign "s" (ExprStr "Hi there!"),
-    ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%s\n", ExprVar "s"]
+  [ ( "_entry_",
+      [ ExprAssign "x" (ExprCall (LabelFunc "f1") []),
+        ExprAssign "_" (ExprCall (LabelFunc "f3") []),
+        ExprAssign "y" (ExprCall (LabelFunc "f2") []),
+        ExprCall
+          (LabelIntrin IntrinPrintf)
+          [ExprStr "%d %d\n", ExprVar "x", ExprVar "y"],
+        ExprAssign "s" (ExprStr "Hi there!"),
+        ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%s\n", ExprVar "s"],
+        ExprI64 0
+      ]
+    ),
+    ("f1", [ExprI64 $ -234]),
+    ("f2", [ExprI64 456]),
+    ( "f3",
+      [ ExprCall (LabelIntrin IntrinPrintf) [ExprStr "Hello, world!\n"],
+        ExprI64 0
+      ]
+    )
   ]
 
 main :: IO ()
-main = mapM_ putStrLn $ compileAll ast
+main =
+  mapM_
+    (mapM_ putStrLn)
+    [ [ "format ELF64",
+        "public _start",
+        "extrn printf",
+        "",
+        "section '.data' writeable"
+      ],
+      compileStrings strings,
+      [ "",
+        "section '.text' executable",
+        "_start:",
+        "\tcall _entry_",
+        "\tmov rdi, rax",
+        "\tmov eax, 60",
+        "\tsyscall"
+      ],
+      asm
+    ]
+  where
+    (strings, asm) = compileFuncs [] ast
