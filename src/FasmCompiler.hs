@@ -122,9 +122,9 @@ compileFunc strings0 label exprs =
 
 compileFuncs :: [String] -> [(String, [Expr])] -> ([String], [Asm])
 compileFuncs strings [] = (strings, [])
-compileFuncs strings0 ((label, exprs) : fs) = (strings2, ast1 ++ ast2)
+compileFuncs strings0 ((label, exprs) : funcs) = (strings2, ast1 ++ ast2)
   where
-    (strings2, ast2) = compileFuncs strings1 fs
+    (strings2, ast2) = compileFuncs strings1 funcs
     (strings1, ast1) = compileFunc strings0 label exprs
 
 compileStrings :: [String] -> [Asm]
