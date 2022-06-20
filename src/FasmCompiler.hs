@@ -162,51 +162,38 @@ compileExpr context0@(ContextExpr _ _ needStack) (ExprSub l0 r1) =
     (context2, r2) = compileExpr context1 r1
 compileExpr _ (ExprEq _ _) = undefined
 compileExpr
-  (ContextExpr (ContextFunc strings k) locals needStack)
-  (ExprIf (ExprEq l0 r1) ifThen2 ifElse3)
+  (ContextExpr (ContextFunc strings0 k0) locals0 needStack0)
+  (ExprIf ifCondition0 ifThen1 ifElse2)
     | thenReturns && elseReturns =
-      ( context4,
-        l1
-          ++ [InstPop (OpReg RegRcx)]
-          ++ r2
-          ++ [ InstPop (OpReg RegR11),
-               InstCmp (OpReg RegRcx) (OpReg RegR11),
-               InstJnz (OpLabel labelElse)
-             ]
-          ++ ifThen3
+      ( context3,
+        ifCondition1
+          ++ ifThen2
           ++ [InstLabel labelElse]
-          ++ ifElse4
+          ++ ifElse3
       )
     | thenReturns || elseReturns = undefined
     | otherwise =
-      ( context4,
-        l1
-          ++ [InstPop (OpReg RegRcx)]
-          ++ r2
-          ++ [ InstPop (OpReg RegR11),
-               InstCmp (OpReg RegRcx) (OpReg RegR11),
-               InstJnz (OpLabel labelElse)
-             ]
-          ++ ifThen3
+      ( context3,
+        ifCondition1
+          ++ ifThen2
           ++ [InstJmp (OpLabel labelEnd), InstLabel labelElse]
-          ++ ifElse4
+          ++ ifElse3
           ++ [InstLabel labelEnd]
       )
     where
-      thenReturns = isRet ifThen2
-      elseReturns = isRet ifElse3
-      (context1, l1) =
-        compileExpr
-          (ContextExpr (ContextFunc strings (succ k)) locals needStack)
-          l0
-      (context2, r2) = compileExpr context1 r1
-      (context3, ifThen3) = compileExprs context2 ifThen2
-      (context4, ifElse4) = compileExprs context3 ifElse3
+      thenReturns = isRet ifThen1
+      elseReturns = isRet ifElse2
+      (context1, ifCondition1) =
+        compileIfCondition
+          (ContextExpr (ContextFunc strings0 (succ k0)) locals0 needStack0)
+          labelElse
+          ifCondition0
+      (context2, ifThen2) = compileExprs context1 ifThen1
+      (context3, ifElse3) = compileExprs context2 ifElse2
       labelElse :: String
-      labelElse = printf "_else%d_" k
+      labelElse = printf "_else%d_" k0
       labelEnd :: String
-      labelEnd = printf "_end%d_" k
-compileExpr _ ExprIf {} = undefined
+      labelEnd = printf "_end%d_" k0
 compileExpr context (ExprI64 i) = (context, [InstPush (OpImm i)])
 compileExpr
   context@(ContextExpr (ContextFunc strings k) locals needStack)
@@ -237,6 +224,22 @@ compileExpr context0 (ExprCall (LabelIntrin intrin) exprs) =
   (context1, asm ++ compileIntrin intrin)
   where
     (context1, asm) = compileCallArgs context0 argRegs exprs
+
+compileIfCondition :: ContextExpr -> String -> Expr -> (ContextExpr, [Inst])
+compileIfCondition context0 labelElse (ExprEq l0 r1) =
+  ( context2,
+    l1
+      ++ [InstPop (OpReg RegRcx)]
+      ++ r2
+      ++ [ InstPop (OpReg RegR11),
+           InstCmp (OpReg RegRcx) (OpReg RegR11),
+           InstJnz (OpLabel labelElse)
+         ]
+  )
+  where
+    (context1, l1) = compileExpr context0 l0
+    (context2, r2) = compileExpr context1 r1
+compileIfCondition _ _ _ = undefined
 
 isRet :: [Expr] -> Bool
 isRet [] = False
