@@ -21,6 +21,7 @@ data Expr
   | ExprEq Expr Expr
   | ExprAdd Expr Expr
   | ExprSub Expr Expr
+  | ExprRet Expr
 
 data Reg
   = RegRdi
@@ -114,6 +115,21 @@ compileExpr context0 (ExprDrop expr0) =
   (context1, expr1 ++ [InstAdd (OpReg RegRsp) (OpImm 8)])
   where
     (context1, expr1) = compileExpr context0 expr0
+compileExpr context0@(ContextExpr _ _ needStack) (ExprRet expr0) =
+  ( context1,
+    expr1
+      ++ [InstPop (OpReg RegRax)]
+      ++ ( if needStack
+             then
+               [ InstMov (OpReg RegRsp) (OpReg RegRbp),
+                 InstPop (OpReg RegRbp)
+               ]
+             else []
+         )
+      ++ [InstRet]
+  )
+  where
+    (context1, expr1) = compileExpr context0 expr0
 compileExpr context0 (ExprAdd l0 r1) =
   ( context2,
     l1
@@ -147,21 +163,38 @@ compileExpr context0@(ContextExpr _ _ needStack) (ExprSub l0 r1) =
 compileExpr _ (ExprEq _ _) = undefined
 compileExpr
   (ContextExpr (ContextFunc strings k) locals needStack)
-  (ExprIf (ExprEq l0 r1) ifThen2 ifElse3) =
-    ( context4,
-      l1
-        ++ [InstPop (OpReg RegRcx)]
-        ++ r2
-        ++ [ InstPop (OpReg RegR11),
-             InstCmp (OpReg RegRcx) (OpReg RegR11),
-             InstJnz (OpLabel labelElse)
-           ]
-        ++ ifThen3
-        ++ [InstJmp (OpLabel labelEnd), InstLabel labelElse]
-        ++ ifElse4
-        ++ [InstLabel labelEnd]
-    )
+  (ExprIf (ExprEq l0 r1) ifThen2 ifElse3)
+    | thenReturns && elseReturns =
+      ( context4,
+        l1
+          ++ [InstPop (OpReg RegRcx)]
+          ++ r2
+          ++ [ InstPop (OpReg RegR11),
+               InstCmp (OpReg RegRcx) (OpReg RegR11),
+               InstJnz (OpLabel labelElse)
+             ]
+          ++ ifThen3
+          ++ [InstLabel labelElse]
+          ++ ifElse4
+      )
+    | thenReturns || elseReturns = undefined
+    | otherwise =
+      ( context4,
+        l1
+          ++ [InstPop (OpReg RegRcx)]
+          ++ r2
+          ++ [ InstPop (OpReg RegR11),
+               InstCmp (OpReg RegRcx) (OpReg RegR11),
+               InstJnz (OpLabel labelElse)
+             ]
+          ++ ifThen3
+          ++ [InstJmp (OpLabel labelEnd), InstLabel labelElse]
+          ++ ifElse4
+          ++ [InstLabel labelEnd]
+      )
     where
+      thenReturns = isRet ifThen2
+      elseReturns = isRet ifElse3
       (context1, l1) =
         compileExpr
           (ContextExpr (ContextFunc strings (succ k)) locals needStack)
@@ -205,6 +238,12 @@ compileExpr context0 (ExprCall (LabelIntrin intrin) exprs) =
   where
     (context1, asm) = compileCallArgs context0 argRegs exprs
 
+isRet :: [Expr] -> Bool
+isRet [] = False
+isRet [ExprRet _] = True
+isRet (ExprRet _ : _) = undefined
+isRet (_ : exprs) = isRet exprs
+
 compileExprs :: ContextExpr -> [Expr] -> (ContextExpr, [Inst])
 compileExprs context [] = (context, [])
 compileExprs context0 (expr : exprs) = (context2, asm1 ++ asm2)
@@ -234,6 +273,13 @@ compileFuncArgs _ [] = []
 compileFuncArgs (reg : regs) (_ : args) =
   InstPush (OpReg reg) : compileFuncArgs regs args
 
+returnLast :: [Expr] -> [Expr]
+returnLast [] = []
+returnLast [ExprIf condition ifThen ifElse] =
+  [ExprIf condition (returnLast ifThen) (returnLast ifElse)]
+returnLast [expr] = [ExprRet expr]
+returnLast (expr : exprs) = expr : returnLast exprs
+
 compileFunc ::
   ContextFunc -> String -> [String] -> [Expr] -> (ContextFunc, [Inst])
 compileFunc context0 label args exprs =
@@ -249,19 +295,12 @@ compileFunc context0 label args exprs =
            )
         ++ compileFuncArgs argRegs args
         ++ asm
-        ++ [InstPop (OpReg RegRax)]
-        ++ ( if needStack
-               then
-                 [ InstMov (OpReg RegRsp) (OpReg RegRbp),
-                   InstPop (OpReg RegRbp)
-                 ]
-               else []
-           )
-        ++ [InstRet]
   )
   where
     (ContextExpr context1 _ _, asm) =
-      compileExprs (ContextExpr context0 (reverse args) needStack) exprs
+      compileExprs
+        (ContextExpr context0 (reverse args) needStack)
+        $ returnLast exprs
     needStack = not (null args) || any isAssignOrUpdate exprs
 
 isAssignOrUpdate :: Expr -> Bool
