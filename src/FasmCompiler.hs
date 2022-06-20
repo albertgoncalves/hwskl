@@ -32,6 +32,8 @@ instance Show Reg where
   show RegR8 = "r8"
   show RegR9 = "r9"
 
+data Func = Func String [String] [Expr]
+
 type Local = String
 
 type Asm = String
@@ -72,11 +74,11 @@ compileExpr locals0 strings0 (ExprAssign var expr) =
 compileExpr locals0 strings0 (ExprCall (LabelFunc label) exprs) =
   (locals1, strings1, asm ++ [printf "\tcall %s" label, "\tpush rax", ""])
   where
-    (locals1, strings1, asm) = compileArgs argRegs locals0 strings0 exprs
+    (locals1, strings1, asm) = compileCallArgs argRegs locals0 strings0 exprs
 compileExpr locals0 strings0 (ExprCall (LabelIntrin intrin) exprs) =
   (locals1, strings1, asm ++ compileIntrin intrin)
   where
-    (locals1, strings1, asm) = compileArgs argRegs locals0 strings0 exprs
+    (locals1, strings1, asm) = compileCallArgs argRegs locals0 strings0 exprs
 
 compileExprs :: [Local] -> [String] -> [Expr] -> ([Local], [String], [Asm])
 compileExprs locals strings [] = (locals, strings, [])
@@ -89,18 +91,24 @@ compileExprs locals0 strings0 (expr : exprs) =
 compileIntrin :: Intrin -> [Asm]
 compileIntrin IntrinPrintf = ["\txor eax, eax", "\tcall printf", ""]
 
-compileArgs ::
+compileCallArgs ::
   [Reg] -> [Local] -> [String] -> [Expr] -> ([Local], [String], [Asm])
-compileArgs [] _ _ _ = undefined
-compileArgs _ locals strings [] = (locals, strings, [])
-compileArgs (reg : regs) locals0 strings0 (expr : exprs) =
+compileCallArgs [] _ _ _ = undefined
+compileCallArgs _ locals strings [] = (locals, strings, [])
+compileCallArgs (reg : regs) locals0 strings0 (expr : exprs) =
   (locals2, strings2, asm0 ++ [printf "\tpop %s" $ show reg] ++ asm1)
   where
     (locals1, strings1, asm0) = compileExpr locals0 strings0 expr
-    (locals2, strings2, asm1) = compileArgs regs locals1 strings1 exprs
+    (locals2, strings2, asm1) = compileCallArgs regs locals1 strings1 exprs
 
-compileFunc :: [String] -> String -> [Expr] -> ([String], [Asm])
-compileFunc strings0 label exprs =
+compileFuncArgs :: [Reg] -> [String] -> [Asm]
+compileFuncArgs [] _ = undefined
+compileFuncArgs _ [] = []
+compileFuncArgs (reg : regs) (_ : args) =
+  printf "\tpush %s" (show reg) : compileFuncArgs regs args
+
+compileFunc :: [String] -> String -> [String] -> [Expr] -> ([String], [Asm])
+compileFunc strings0 label args exprs =
   ( strings1,
     [ "",
       printf "%s:" label
@@ -109,6 +117,7 @@ compileFunc strings0 label exprs =
            "\tmov rbp, rsp",
            ""
          ]
+      ++ compileFuncArgs argRegs args
       ++ asm
       ++ [ "\tpop rax",
            "",
@@ -118,14 +127,15 @@ compileFunc strings0 label exprs =
          ]
   )
   where
-    (_, strings1, asm) = compileExprs [] strings0 exprs
+    (_, strings1, asm) = compileExprs (reverse args) strings0 exprs
 
-compileFuncs :: [String] -> [(String, [Expr])] -> ([String], [Asm])
+compileFuncs :: [String] -> [Func] -> ([String], [Asm])
 compileFuncs strings [] = (strings, [])
-compileFuncs strings0 ((label, exprs) : funcs) = (strings2, ast1 ++ ast2)
+compileFuncs strings0 ((Func label args exprs) : funcs) =
+  (strings2, ast1 ++ ast2)
   where
     (strings2, ast2) = compileFuncs strings1 funcs
-    (strings1, ast1) = compileFunc strings0 label exprs
+    (strings1, ast1) = compileFunc strings0 label args exprs
 
 compileStrings :: [String] -> [Asm]
 compileStrings =
@@ -135,27 +145,40 @@ compileStrings =
     . map (intercalate "," . map (show . ord))
     . reverse
 
-ast :: [(String, [Expr])]
+ast :: [Func]
 ast =
-  [ ( "_entry_",
+  [ Func
+      "_entry_"
+      []
       [ ExprAssign "x" (ExprCall (LabelFunc "f1") []),
         ExprAssign "_" (ExprCall (LabelFunc "f3") []),
-        ExprAssign "y" (ExprCall (LabelFunc "f2") []),
+        ExprAssign "y" (ExprCall (LabelFunc "f4") []),
         ExprCall
           (LabelIntrin IntrinPrintf)
           [ExprStr "%d %d\n", ExprVar "x", ExprVar "y"],
         ExprAssign "s" (ExprStr "Hi there!"),
         ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%s\n", ExprVar "s"],
         ExprI64 0
-      ]
-    ),
-    ("f1", [ExprI64 $ -234]),
-    ("f2", [ExprI64 456]),
-    ( "f3",
+      ],
+    Func "f1" [] [ExprI64 $ -234],
+    Func "f2" [] [ExprI64 456],
+    Func
+      "f3"
+      []
       [ ExprCall (LabelIntrin IntrinPrintf) [ExprStr "Hello, world!\n"],
         ExprI64 0
-      ]
-    )
+      ],
+    Func
+      "f4"
+      []
+      [ ExprAssign "y" (ExprCall (LabelFunc "f2") []),
+        ExprCall
+          (LabelFunc "f5")
+          [ ExprVar "y",
+            ExprI64 5
+          ]
+      ],
+    Func "f5" ["w", "z"] [ExprVar "w"]
   ]
 
 main :: IO ()
