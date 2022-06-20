@@ -16,6 +16,11 @@ data Expr
   | ExprAssign String Expr
   | ExprUpdate String Expr
   | ExprCall Label [Expr]
+  | ExprDrop Expr
+  | ExprIf Expr [Expr] [Expr]
+  | ExprEq Expr Expr
+  | ExprAdd Expr Expr
+  | ExprSub Expr Expr
 
 data Reg
   = RegRdi
@@ -28,6 +33,8 @@ data Reg
   | RegEax
   | RegRbp
   | RegRsp
+  | RegRcx
+  | RegR11
   deriving (Eq)
 
 instance Show Reg where
@@ -41,10 +48,10 @@ instance Show Reg where
   show RegEax = "eax"
   show RegRbp = "rbp"
   show RegRsp = "rsp"
+  show RegRcx = "rcx"
+  show RegR11 = "r11"
 
 data Func = Func String [String] [Expr]
-
-type Local = String
 
 data Op
   = OpReg Reg
@@ -72,6 +79,10 @@ data Inst
   | InstXor Op Op
   | InstSysCall
   | InstJmp Op
+  | InstCmp Op Op
+  | InstJnz Op
+  | InstAdd Op Op
+  | InstSub Op Op
 
 instance Show Inst where
   show (InstLabel label) = printf "%s:" label
@@ -83,6 +94,14 @@ instance Show Inst where
   show (InstMov op0 op1) = printf "\tmov %s, %s" (show op0) (show op1)
   show (InstXor op0 op1) = printf "\txor %s, %s" (show op0) (show op1)
   show InstSysCall = "\tsyscall"
+  show (InstCmp op0 op1) = printf "\tcmp %s, %s" (show op0) (show op1)
+  show (InstJnz op) = printf "\tjnz %s" (show op)
+  show (InstAdd op0 op1) = printf "\tadd %s, %s" (show op0) (show op1)
+  show (InstSub op0 op1) = printf "\tsub %s, %s" (show op0) (show op1)
+
+data ContextExpr = ContextExpr ContextFunc [String] Bool
+
+data ContextFunc = ContextFunc [String] Int
 
 argRegs :: [Reg]
 argRegs = [RegRdi, RegRsi, RegRdx, RegR10, RegR8, RegR9]
@@ -90,67 +109,124 @@ argRegs = [RegRdi, RegRsi, RegRdx, RegR10, RegR8, RegR9]
 labelString :: Int -> String
 labelString = printf "_s%d_"
 
-compileExpr :: [Local] -> [String] -> Expr -> ([Local], [String], [Inst])
-compileExpr locals strings (ExprI64 i) =
-  (locals, strings, [InstPush (OpImm i)])
-compileExpr locals strings (ExprStr s) =
-  case elemIndex s strings of
-    Nothing ->
-      ( locals,
-        s : strings,
-        [InstPush (OpLabel $ labelString $ length strings)]
-      )
-    Just n ->
-      ( locals,
-        strings,
-        [InstPush (OpLabel $ labelString $ length strings - n)]
-      )
-compileExpr locals strings (ExprVar v) =
+compileExpr :: ContextExpr -> Expr -> (ContextExpr, [Inst])
+compileExpr context0 (ExprDrop expr0) =
+  (context1, expr1 ++ [InstAdd (OpReg RegRsp) (OpImm 8)])
+  where
+    (context1, expr1) = compileExpr context0 expr0
+compileExpr context0 (ExprAdd l0 r1) =
+  ( context2,
+    l1
+      ++ [InstPop (OpReg RegRcx)]
+      ++ r2
+      ++ [ InstPop (OpReg RegR11),
+           InstAdd (OpReg RegRcx) (OpReg RegR11),
+           InstPush (OpReg RegRcx)
+         ]
+  )
+  where
+    (context1, l1) = compileExpr context0 l0
+    (context2, r2) = compileExpr context1 r1
+compileExpr context0@(ContextExpr _ _ needStack) (ExprSub l0 r1) =
+  ( context2,
+    l1
+      ++ [InstPop (OpReg RegRcx)]
+      ++ r2
+      ++ ( if needStack
+             then
+               [ InstPop (OpReg RegR11),
+                 InstSub (OpReg RegRcx) (OpReg RegR11)
+               ]
+             else []
+         )
+      ++ [InstPush (OpReg RegRcx)]
+  )
+  where
+    (context1, l1) = compileExpr context0 l0
+    (context2, r2) = compileExpr context1 r1
+compileExpr _ (ExprEq _ _) = undefined
+compileExpr
+  (ContextExpr (ContextFunc strings k) locals needStack)
+  (ExprIf (ExprEq l0 r1) ifThen2 ifElse3) =
+    ( context4,
+      l1
+        ++ [InstPop (OpReg RegRcx)]
+        ++ r2
+        ++ [ InstPop (OpReg RegR11),
+             InstCmp (OpReg RegRcx) (OpReg RegR11),
+             InstJnz (OpLabel labelElse)
+           ]
+        ++ ifThen3
+        ++ [InstJmp (OpLabel labelEnd), InstLabel labelElse]
+        ++ ifElse4
+        ++ [InstLabel labelEnd]
+    )
+    where
+      (context1, l1) =
+        compileExpr
+          (ContextExpr (ContextFunc strings (succ k)) locals needStack)
+          l0
+      (context2, r2) = compileExpr context1 r1
+      (context3, ifThen3) = compileExprs context2 ifThen2
+      (context4, ifElse4) = compileExprs context3 ifElse3
+      labelElse :: String
+      labelElse = printf "_else%d_" k
+      labelEnd :: String
+      labelEnd = printf "_end%d_" k
+compileExpr _ ExprIf {} = undefined
+compileExpr context (ExprI64 i) = (context, [InstPush (OpImm i)])
+compileExpr
+  context@(ContextExpr (ContextFunc strings k) locals needStack)
+  (ExprStr s) =
+    case elemIndex s strings of
+      Nothing ->
+        ( ContextExpr (ContextFunc (s : strings) k) locals needStack,
+          [InstPush (OpLabel $ labelString $ length strings)]
+        )
+      Just n ->
+        (context, [InstPush (OpLabel $ labelString $ length strings - n)])
+compileExpr context@(ContextExpr _ locals _) (ExprVar v) =
   case elemIndex v locals of
     Nothing -> undefined
     Just n ->
-      ( locals,
-        strings,
-        [InstPush (OpDeref RegRbp $ negate $ (length locals - n) * 8)]
-      )
-compileExpr locals0 strings0 (ExprAssign var expr) =
-  (var : locals1, strings1, asm)
+      (context, [InstPush (OpDeref RegRbp $ negate $ (length locals - n) * 8)])
+compileExpr contextExpr (ExprAssign var expr) =
+  (ContextExpr contextFunc (var : locals) needStack, asm)
   where
-    (locals1, strings1, asm) = compileExpr locals0 strings0 expr
-compileExpr _ _ (ExprUpdate _ _) = undefined
-compileExpr locals0 strings0 (ExprCall (LabelFunc label) exprs) =
-  ( locals1,
-    strings1,
-    asm ++ [InstCall (OpLabel label), InstPush (OpReg RegRax)]
-  )
+    (ContextExpr contextFunc locals needStack, asm) =
+      compileExpr contextExpr expr
+compileExpr _ (ExprUpdate _ _) = undefined
+compileExpr context0 (ExprCall (LabelFunc label) exprs) =
+  (context1, asm ++ [InstCall (OpLabel label), InstPush (OpReg RegRax)])
   where
-    (locals1, strings1, asm) = compileCallArgs argRegs locals0 strings0 exprs
-compileExpr locals0 strings0 (ExprCall (LabelIntrin intrin) exprs) =
-  (locals1, strings1, asm ++ compileIntrin intrin)
+    (context1, asm) = compileCallArgs context0 argRegs exprs
+compileExpr context0 (ExprCall (LabelIntrin intrin) exprs) =
+  (context1, asm ++ compileIntrin intrin)
   where
-    (locals1, strings1, asm) = compileCallArgs argRegs locals0 strings0 exprs
+    (context1, asm) = compileCallArgs context0 argRegs exprs
 
-compileExprs :: [Local] -> [String] -> [Expr] -> ([Local], [String], [Inst])
-compileExprs locals strings [] = (locals, strings, [])
-compileExprs locals0 strings0 (expr : exprs) =
-  (locals2, strings2, asm1 ++ asm2)
+compileExprs :: ContextExpr -> [Expr] -> (ContextExpr, [Inst])
+compileExprs context [] = (context, [])
+compileExprs context0 (expr : exprs) = (context2, asm1 ++ asm2)
   where
-    (locals2, strings2, asm2) = compileExprs locals1 strings1 exprs
-    (locals1, strings1, asm1) = compileExpr locals0 strings0 expr
+    (context1, asm1) = compileExpr context0 expr
+    (context2, asm2) = compileExprs context1 exprs
 
 compileIntrin :: Intrin -> [Inst]
 compileIntrin IntrinPrintf =
-  [InstXor (OpReg RegEax) (OpReg RegEax), InstCall (OpLabel "printf")]
+  [ InstXor (OpReg RegEax) (OpReg RegEax),
+    InstCall (OpLabel "printf"),
+    InstPush (OpReg RegRax)
+  ]
 
-compileCallArgs ::
-  [Reg] -> [Local] -> [String] -> [Expr] -> ([Local], [String], [Inst])
-compileCallArgs [] _ _ _ = undefined
-compileCallArgs _ locals strings [] = (locals, strings, [])
-compileCallArgs (reg : regs) locals0 strings0 (expr : exprs) =
-  (locals2, strings2, asm0 ++ [InstPop (OpReg reg)] ++ asm1)
+compileCallArgs :: ContextExpr -> [Reg] -> [Expr] -> (ContextExpr, [Inst])
+compileCallArgs _ [] _ = undefined
+compileCallArgs context _ [] = (context, [])
+compileCallArgs context0 (reg : regs) (expr : exprs) =
+  (context2, asm1 ++ asm2 ++ [InstPop (OpReg reg)])
   where
-    (locals1, strings1, asm0) = compileExpr locals0 strings0 expr
-    (locals2, strings2, asm1) = compileCallArgs regs locals1 strings1 exprs
+    (context1, asm1) = compileExpr context0 expr
+    (context2, asm2) = compileCallArgs context1 regs exprs
 
 compileFuncArgs :: [Reg] -> [String] -> [Inst]
 compileFuncArgs [] _ = undefined
@@ -158,9 +234,10 @@ compileFuncArgs _ [] = []
 compileFuncArgs (reg : regs) (_ : args) =
   InstPush (OpReg reg) : compileFuncArgs regs args
 
-compileFunc :: [String] -> String -> [String] -> [Expr] -> ([String], [Inst])
-compileFunc strings0 label args exprs =
-  ( strings1,
+compileFunc ::
+  ContextFunc -> String -> [String] -> [Expr] -> (ContextFunc, [Inst])
+compileFunc context0 label args exprs =
+  ( context1,
     optimize $
       [InstLabel label]
         ++ ( if needStack
@@ -183,7 +260,8 @@ compileFunc strings0 label args exprs =
         ++ [InstRet]
   )
   where
-    (_, strings1, asm) = compileExprs (reverse args) strings0 exprs
+    (ContextExpr context1 _ _, asm) =
+      compileExprs (ContextExpr context0 (reverse args) needStack) exprs
     needStack = not (null args) || any isAssignOrUpdate exprs
 
 isAssignOrUpdate :: Expr -> Bool
@@ -191,19 +269,21 @@ isAssignOrUpdate (ExprAssign _ _) = True
 isAssignOrUpdate (ExprUpdate _ _) = True
 isAssignOrUpdate _ = False
 
-compileFuncs :: [String] -> [Func] -> ([String], [Inst])
-compileFuncs strings [] = (strings, [])
-compileFuncs strings0 ((Func label args exprs) : funcs) =
-  (strings2, ast1 ++ ast2)
+compileFuncs :: ContextFunc -> [Func] -> (ContextFunc, [Inst])
+compileFuncs context [] = (context, [])
+compileFuncs context0 ((Func label args exprs) : funcs) =
+  (context2, insts1 ++ insts2)
   where
-    (strings2, ast2) = compileFuncs strings1 funcs
-    (strings1, ast1) = compileFunc strings0 label args exprs
+    (context1, insts1) = compileFunc context0 label args exprs
+    (context2, insts2) = compileFuncs context1 funcs
 
 optPushPop :: [Inst] -> [Inst]
 optPushPop [] = []
 optPushPop (InstPush opPush : InstPop opPop : insts)
   | opPush == opPop = optPushPop insts
   | otherwise = InstMov opPop opPush : optPushPop insts
+optPushPop (InstPush _ : InstAdd (OpReg RegRsp) (OpImm 8) : insts) =
+  optPushPop insts
 optPushPop (inst : insts) = inst : optPushPop insts
 
 optTailCall :: [Inst] -> [Inst]
@@ -229,19 +309,22 @@ compileStrings =
     . map (intercalate "," . map (show . ord))
     . reverse
 
-ast :: [Func]
-ast =
+program0 :: [Func]
+program0 =
   [ Func
       "_entry_"
       []
       [ ExprAssign "x" (ExprCall (LabelFunc "f1") [ExprI64 $ -234]),
         ExprAssign "_" (ExprCall (LabelFunc "f3") []),
         ExprAssign "y" (ExprCall (LabelFunc "f4") []),
-        ExprCall
-          (LabelIntrin IntrinPrintf)
-          [ExprStr "%d %d\n", ExprVar "x", ExprVar "y"],
+        ExprDrop
+          ( ExprCall
+              (LabelIntrin IntrinPrintf)
+              [ExprStr "%d %d\n", ExprVar "x", ExprVar "y"]
+          ),
         ExprAssign "s" (ExprStr "Hi there!"),
-        ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%s\n", ExprVar "s"],
+        ExprDrop
+          (ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%s\n", ExprVar "s"]),
         ExprI64 0
       ],
     Func "f1" ["x"] [ExprVar "x"],
@@ -249,7 +332,8 @@ ast =
     Func
       "f3"
       []
-      [ ExprCall (LabelIntrin IntrinPrintf) [ExprStr "Hello, world!\n"],
+      [ ExprDrop
+          (ExprCall (LabelIntrin IntrinPrintf) [ExprStr "Hello, world!\n"]),
         ExprI64 0
       ],
     Func
@@ -260,6 +344,33 @@ ast =
       ],
     Func "f5" ["w", "z"] [ExprVar "w"],
     Func "f6" [] [ExprCall (LabelFunc "f2") []]
+  ]
+
+program1 :: [Func]
+program1 =
+  [ Func
+      "_entry_"
+      []
+      [ ExprCall
+          (LabelIntrin IntrinPrintf)
+          [ ExprStr "%ld\n",
+            ExprCall (LabelFunc "fib") [ExprI64 50, ExprI64 0, ExprI64 1]
+          ]
+      ],
+    Func
+      "fib"
+      ["n", "a", "b"]
+      [ ExprIf
+          (ExprEq (ExprVar "n") (ExprI64 0))
+          [ExprVar "a"]
+          [ ExprCall
+              (LabelFunc "fib")
+              [ ExprSub (ExprVar "n") (ExprI64 1),
+                ExprVar "b",
+                ExprAdd (ExprVar "a") (ExprVar "b")
+              ]
+          ]
+      ]
   ]
 
 main :: IO ()
@@ -284,4 +395,4 @@ main =
       map show asm
     ]
   where
-    (strings, asm) = compileFuncs [] ast
+    (ContextFunc strings _, asm) = compileFuncs (ContextFunc [] 0) program1
