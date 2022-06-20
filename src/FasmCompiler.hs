@@ -81,7 +81,8 @@ data Inst
   | InstSysCall
   | InstJmp Op
   | InstCmp Op Op
-  | InstJnz Op
+  | InstTest Op Op
+  | InstJe Op
   | InstAdd Op Op
   | InstSub Op Op
 
@@ -96,7 +97,8 @@ instance Show Inst where
   show (InstXor op0 op1) = printf "\txor %s, %s" (show op0) (show op1)
   show InstSysCall = "\tsyscall"
   show (InstCmp op0 op1) = printf "\tcmp %s, %s" (show op0) (show op1)
-  show (InstJnz op) = printf "\tjnz %s" (show op)
+  show (InstTest op0 op1) = printf "\ttest %s, %s" (show op0) (show op1)
+  show (InstJe op) = printf "\tje %s" (show op)
   show (InstAdd op0 op1) = printf "\tadd %s, %s" (show op0) (show op1)
   show (InstSub op0 op1) = printf "\tsub %s, %s" (show op0) (show op1)
 
@@ -130,6 +132,16 @@ compileExpr context0@(ContextExpr _ _ needStack) (ExprRet expr0) =
   )
   where
     (context1, expr1) = compileExpr context0 expr0
+compileExpr context0 (ExprAdd l0 (ExprI64 r)) =
+  ( context1,
+    l1
+      ++ [ InstPop (OpReg RegRcx),
+           InstAdd (OpReg RegRcx) (OpImm r),
+           InstPush (OpReg RegRcx)
+         ]
+  )
+  where
+    (context1, l1) = compileExpr context0 l0
 compileExpr context0 (ExprAdd l0 r1) =
   ( context2,
     l1
@@ -143,19 +155,25 @@ compileExpr context0 (ExprAdd l0 r1) =
   where
     (context1, l1) = compileExpr context0 l0
     (context2, r2) = compileExpr context1 r1
-compileExpr context0@(ContextExpr _ _ needStack) (ExprSub l0 r1) =
+compileExpr context0 (ExprSub l0 (ExprI64 r)) =
+  ( context1,
+    l1
+      ++ [ InstPop (OpReg RegRcx),
+           InstSub (OpReg RegRcx) (OpImm r),
+           InstPush (OpReg RegRcx)
+         ]
+  )
+  where
+    (context1, l1) = compileExpr context0 l0
+compileExpr context0 (ExprSub l0 r1) =
   ( context2,
     l1
       ++ [InstPop (OpReg RegRcx)]
       ++ r2
-      ++ ( if needStack
-             then
-               [ InstPop (OpReg RegR11),
-                 InstSub (OpReg RegRcx) (OpReg RegR11)
-               ]
-             else []
-         )
-      ++ [InstPush (OpReg RegRcx)]
+      ++ [ InstPop (OpReg RegR11),
+           InstSub (OpReg RegRcx) (OpReg RegR11),
+           InstPush (OpReg RegRcx)
+         ]
   )
   where
     (context1, l1) = compileExpr context0 l0
@@ -167,17 +185,17 @@ compileExpr
     | thenReturns && elseReturns =
       ( context3,
         ifCondition1
-          ++ ifThen2
-          ++ [InstLabel labelElse]
           ++ ifElse3
+          ++ [InstLabel labelThen]
+          ++ ifThen2
       )
     | thenReturns || elseReturns = undefined
     | otherwise =
       ( context3,
         ifCondition1
-          ++ ifThen2
-          ++ [InstJmp (OpLabel labelEnd), InstLabel labelElse]
           ++ ifElse3
+          ++ [InstJmp (OpLabel labelEnd), InstLabel labelThen]
+          ++ ifThen2
           ++ [InstLabel labelEnd]
       )
     where
@@ -186,12 +204,12 @@ compileExpr
       (context1, ifCondition1) =
         compileIfCondition
           (ContextExpr (ContextFunc strings0 (succ k0)) locals0 needStack0)
-          labelElse
+          labelThen
           ifCondition0
       (context2, ifThen2) = compileExprs context1 ifThen1
       (context3, ifElse3) = compileExprs context2 ifElse2
-      labelElse :: String
-      labelElse = printf "_else%d_" k0
+      labelThen :: String
+      labelThen = printf "_then%d_" k0
       labelEnd :: String
       labelEnd = printf "_end%d_" k0
 compileExpr context (ExprI64 i) = (context, [InstPush (OpImm i)])
@@ -226,14 +244,34 @@ compileExpr context0 (ExprCall (LabelIntrin intrin) exprs) =
     (context1, asm) = compileCallArgs context0 argRegs exprs
 
 compileIfCondition :: ContextExpr -> String -> Expr -> (ContextExpr, [Inst])
-compileIfCondition context0 labelElse (ExprEq l0 r1) =
+compileIfCondition context0 label (ExprEq l0 (ExprI64 0)) =
+  ( context1,
+    l1
+      ++ [ InstPop (OpReg RegRcx),
+           InstTest (OpReg RegRcx) (OpReg RegRcx),
+           InstJe (OpLabel label)
+         ]
+  )
+  where
+    (context1, l1) = compileExpr context0 l0
+compileIfCondition context0 label (ExprEq (ExprI64 0) r0) =
+  ( context1,
+    r1
+      ++ [ InstPop (OpReg RegRcx),
+           InstTest (OpReg RegRcx) (OpReg RegRcx),
+           InstJe (OpLabel label)
+         ]
+  )
+  where
+    (context1, r1) = compileExpr context0 r0
+compileIfCondition context0 label (ExprEq l0 r1) =
   ( context2,
     l1
       ++ [InstPop (OpReg RegRcx)]
       ++ r2
       ++ [ InstPop (OpReg RegR11),
            InstCmp (OpReg RegRcx) (OpReg RegR11),
-           InstJnz (OpLabel labelElse)
+           InstJe (OpLabel label)
          ]
   )
   where
@@ -415,6 +453,67 @@ program1 =
       ]
   ]
 
+program2 :: [Func]
+program2 =
+  [ Func
+      "_entry_"
+      []
+      [ ExprDrop $
+          ExprCall
+            (LabelIntrin IntrinPrintf)
+            [ ExprStr "%ld\n",
+              ExprCall (LabelFunc "is_even") [ExprI64 456789]
+            ],
+        ExprI64 0
+      ],
+    Func
+      "is_even"
+      ["n"]
+      [ ExprIf
+          (ExprEq (ExprVar "n") (ExprI64 0))
+          [ExprI64 1]
+          [ExprCall (LabelFunc "is_odd") [ExprSub (ExprVar "n") (ExprI64 1)]]
+      ],
+    Func
+      "is_odd"
+      ["n"]
+      [ ExprIf
+          (ExprEq (ExprVar "n") (ExprI64 0))
+          [ExprI64 0]
+          [ExprCall (LabelFunc "is_even") [ExprSub (ExprVar "n") (ExprI64 1)]]
+      ]
+  ]
+
+program3 :: [Func]
+program3 =
+  [ Func
+      "_entry_"
+      []
+      [ ExprAssign
+          "x"
+          ( ExprIf
+              (ExprEq (ExprI64 0) (ExprI64 1))
+              [ ExprIf
+                  (ExprEq (ExprI64 1) (ExprI64 0))
+                  [ExprI64 1]
+                  [ExprI64 2]
+              ]
+              [ ExprIf
+                  (ExprEq (ExprI64 0) (ExprI64 1))
+                  [ ExprIf
+                      (ExprEq (ExprI64 0) (ExprI64 1))
+                      [ExprI64 3]
+                      [ExprI64 5]
+                  ]
+                  [ExprI64 4]
+              ]
+          ),
+        ExprDrop $
+          ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%ld\n", ExprVar "x"],
+        ExprI64 0
+      ]
+  ]
+
 main :: IO ()
 main =
   mapM_
@@ -437,4 +536,4 @@ main =
       map show asm
     ]
   where
-    (ContextFunc strings _, asm) = compileFuncs (ContextFunc [] 0) program1
+    (ContextFunc strings _, asm) = compileFuncs (ContextFunc [] 0) program3
