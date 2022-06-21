@@ -85,6 +85,7 @@ data Inst
   | InstJe Op
   | InstAdd Op Op
   | InstSub Op Op
+  | InstLeave
 
 instance Show Inst where
   show (InstLabel label) = printf "%s:" label
@@ -101,6 +102,7 @@ instance Show Inst where
   show (InstJe op) = printf "\tje %s" (show op)
   show (InstAdd op0 op1) = printf "\tadd %s, %s" (show op0) (show op1)
   show (InstSub op0 op1) = printf "\tsub %s, %s" (show op0) (show op1)
+  show InstLeave = "\tleave"
 
 data ContextExpr = ContextExpr ContextFunc [String] Bool
 
@@ -112,6 +114,12 @@ argRegs = [RegRdi, RegRsi, RegRdx, RegR10, RegR8, RegR9]
 labelString :: Int -> String
 labelString = printf "_s%d_"
 
+isRet :: [Expr] -> Bool
+isRet [] = False
+isRet [ExprRet _] = True
+isRet (ExprRet _ : _) = undefined
+isRet (_ : exprs) = isRet exprs
+
 compileExpr :: ContextExpr -> Expr -> (ContextExpr, [Inst])
 compileExpr context0 (ExprDrop expr0) =
   (context1, expr1 ++ [InstAdd (OpReg RegRsp) (OpImm 8)])
@@ -119,16 +127,7 @@ compileExpr context0 (ExprDrop expr0) =
     (context1, expr1) = compileExpr context0 expr0
 compileExpr context0@(ContextExpr _ _ needStack) (ExprRet expr0) =
   ( context1,
-    expr1
-      ++ [InstPop (OpReg RegRax)]
-      ++ ( if needStack
-             then
-               [ InstMov (OpReg RegRsp) (OpReg RegRbp),
-                 InstPop (OpReg RegRbp)
-               ]
-             else []
-         )
-      ++ [InstRet]
+    expr1 ++ [InstPop (OpReg RegRax)] ++ [InstLeave | needStack] ++ [InstRet]
   )
   where
     (context1, expr1) = compileExpr context0 expr0
@@ -279,12 +278,6 @@ compileIfCondition context0 label (ExprEq l0 r1) =
     (context2, r2) = compileExpr context1 r1
 compileIfCondition _ _ _ = undefined
 
-isRet :: [Expr] -> Bool
-isRet [] = False
-isRet [ExprRet _] = True
-isRet (ExprRet _ : _) = undefined
-isRet (_ : exprs) = isRet exprs
-
 compileExprs :: ContextExpr -> [Expr] -> (ContextExpr, [Inst])
 compileExprs context [] = (context, [])
 compileExprs context0 (expr : exprs) = (context2, asm1 ++ asm2)
@@ -368,13 +361,8 @@ optPushPop (inst : insts) = inst : optPushPop insts
 
 optTailCall :: [Inst] -> [Inst]
 optTailCall [] = []
-optTailCall
-  ( InstCall op
-      : mov@(InstMov (OpReg RegRsp) (OpReg RegRbp))
-      : pop@(InstPop (OpReg RegRbp))
-      : InstRet
-      : insts
-    ) = mov : pop : InstJmp op : optTailCall insts
+optTailCall (InstCall op : InstLeave : InstRet : insts) =
+  InstLeave : InstJmp op : optTailCall insts
 optTailCall (InstCall op : InstRet : insts) = InstJmp op : optTailCall insts
 optTailCall (inst : insts) = inst : optTailCall insts
 
@@ -397,14 +385,13 @@ program0 =
       [ ExprAssign "x" (ExprCall (LabelFunc "f1") [ExprI64 $ -234]),
         ExprAssign "_" (ExprCall (LabelFunc "f3") []),
         ExprAssign "y" (ExprCall (LabelFunc "f4") []),
-        ExprDrop
-          ( ExprCall
-              (LabelIntrin IntrinPrintf)
-              [ExprStr "%d %d\n", ExprVar "x", ExprVar "y"]
-          ),
+        ExprDrop $
+          ExprCall
+            (LabelIntrin IntrinPrintf)
+            [ExprStr "%d %d\n", ExprVar "x", ExprVar "y"],
         ExprAssign "s" (ExprStr "Hi there!"),
-        ExprDrop
-          (ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%s\n", ExprVar "s"]),
+        ExprDrop $
+          ExprCall (LabelIntrin IntrinPrintf) [ExprStr "%s\n", ExprVar "s"],
         ExprI64 0
       ],
     Func "f1" ["x"] [ExprVar "x"],
@@ -412,8 +399,8 @@ program0 =
     Func
       "f3"
       []
-      [ ExprDrop
-          (ExprCall (LabelIntrin IntrinPrintf) [ExprStr "Hello, world!\n"]),
+      [ ExprDrop $
+          ExprCall (LabelIntrin IntrinPrintf) [ExprStr "Hello, world!\n"],
         ExprI64 0
       ],
     Func
@@ -461,9 +448,7 @@ program2 =
       [ ExprDrop $
           ExprCall
             (LabelIntrin IntrinPrintf)
-            [ ExprStr "%ld\n",
-              ExprCall (LabelFunc "is_even") [ExprI64 456789]
-            ],
+            [ExprStr "%ld\n", ExprCall (LabelFunc "is_even") [ExprI64 456789]],
         ExprI64 0
       ],
     Func
@@ -493,11 +478,7 @@ program3 =
           "x"
           ( ExprIf
               (ExprEq (ExprI64 0) (ExprI64 1))
-              [ ExprIf
-                  (ExprEq (ExprI64 1) (ExprI64 0))
-                  [ExprI64 1]
-                  [ExprI64 2]
-              ]
+              [ExprIf (ExprEq (ExprI64 1) (ExprI64 0)) [ExprI64 1] [ExprI64 2]]
               [ ExprIf
                   (ExprEq (ExprI64 0) (ExprI64 1))
                   [ ExprIf
