@@ -500,7 +500,7 @@ main =
         "public _start",
         "extrn printf",
         "",
-        "section '.data' writeable"
+        "section '.rodata'"
       ],
       compileStrings strings,
       [ "",
