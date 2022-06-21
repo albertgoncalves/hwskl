@@ -183,10 +183,7 @@ compileExpr
   (ExprIf ifCondition0 ifThen1 ifElse2)
     | thenReturns && elseReturns =
       ( context3,
-        ifCondition1
-          ++ ifElse3
-          ++ [InstLabel labelThen]
-          ++ ifThen2
+        ifCondition1 ++ ifElse3 ++ [InstLabel labelThen] ++ ifThen2
       )
     | thenReturns || elseReturns = undefined
     | otherwise =
