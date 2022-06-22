@@ -109,7 +109,7 @@ data ContextExpr = ContextExpr ContextFunc [String] Bool
 data ContextFunc = ContextFunc [String] Int
 
 argRegs :: [Reg]
-argRegs = [RegRdi, RegRsi, RegRdx, RegR10, RegR8, RegR9]
+argRegs = [RegRdi, RegRsi, RegRdx, RegRcx, RegR8, RegR9]
 
 labelString :: Int -> String
 labelString = printf "_s%d_"
@@ -134,9 +134,9 @@ compileExpr context0@(ContextExpr _ _ needStack) (ExprRet expr0) =
 compileExpr context0 (ExprAdd l0 (ExprI64 r)) =
   ( context1,
     l1
-      ++ [ InstPop (OpReg RegRcx),
-           InstAdd (OpReg RegRcx) (OpImm r),
-           InstPush (OpReg RegRcx)
+      ++ [ InstPop (OpReg RegR10),
+           InstAdd (OpReg RegR10) (OpImm r),
+           InstPush (OpReg RegR10)
          ]
   )
   where
@@ -144,11 +144,11 @@ compileExpr context0 (ExprAdd l0 (ExprI64 r)) =
 compileExpr context0 (ExprAdd l0 r1) =
   ( context2,
     l1
-      ++ [InstPop (OpReg RegRcx)]
+      ++ [InstPop (OpReg RegR10)]
       ++ r2
       ++ [ InstPop (OpReg RegR11),
-           InstAdd (OpReg RegRcx) (OpReg RegR11),
-           InstPush (OpReg RegRcx)
+           InstAdd (OpReg RegR10) (OpReg RegR11),
+           InstPush (OpReg RegR10)
          ]
   )
   where
@@ -157,9 +157,9 @@ compileExpr context0 (ExprAdd l0 r1) =
 compileExpr context0 (ExprSub l0 (ExprI64 r)) =
   ( context1,
     l1
-      ++ [ InstPop (OpReg RegRcx),
-           InstSub (OpReg RegRcx) (OpImm r),
-           InstPush (OpReg RegRcx)
+      ++ [ InstPop (OpReg RegR10),
+           InstSub (OpReg RegR10) (OpImm r),
+           InstPush (OpReg RegR10)
          ]
   )
   where
@@ -167,11 +167,11 @@ compileExpr context0 (ExprSub l0 (ExprI64 r)) =
 compileExpr context0 (ExprSub l0 r1) =
   ( context2,
     l1
-      ++ [InstPop (OpReg RegRcx)]
+      ++ [InstPop (OpReg RegR10)]
       ++ r2
       ++ [ InstPop (OpReg RegR11),
-           InstSub (OpReg RegRcx) (OpReg RegR11),
-           InstPush (OpReg RegRcx)
+           InstSub (OpReg RegR10) (OpReg RegR11),
+           InstPush (OpReg RegR10)
          ]
   )
   where
@@ -243,8 +243,8 @@ compileIfCondition :: ContextExpr -> String -> Expr -> (ContextExpr, [Inst])
 compileIfCondition context0 label (ExprEq l0 (ExprI64 0)) =
   ( context1,
     l1
-      ++ [ InstPop (OpReg RegRcx),
-           InstTest (OpReg RegRcx) (OpReg RegRcx),
+      ++ [ InstPop (OpReg RegR10),
+           InstTest (OpReg RegR10) (OpReg RegR10),
            InstJe (OpLabel label)
          ]
   )
@@ -253,8 +253,8 @@ compileIfCondition context0 label (ExprEq l0 (ExprI64 0)) =
 compileIfCondition context0 label (ExprEq (ExprI64 0) r0) =
   ( context1,
     r1
-      ++ [ InstPop (OpReg RegRcx),
-           InstTest (OpReg RegRcx) (OpReg RegRcx),
+      ++ [ InstPop (OpReg RegR10),
+           InstTest (OpReg RegR10) (OpReg RegR10),
            InstJe (OpLabel label)
          ]
   )
@@ -263,10 +263,10 @@ compileIfCondition context0 label (ExprEq (ExprI64 0) r0) =
 compileIfCondition context0 label (ExprEq l0 r1) =
   ( context2,
     l1
-      ++ [InstPop (OpReg RegRcx)]
+      ++ [InstPop (OpReg RegR10)]
       ++ r2
       ++ [ InstPop (OpReg RegR11),
-           InstCmp (OpReg RegRcx) (OpReg RegR11),
+           InstCmp (OpReg RegR10) (OpReg RegR11),
            InstJe (OpLabel label)
          ]
   )
@@ -492,6 +492,24 @@ program3 =
       ]
   ]
 
+program4 :: [Func]
+program4 =
+  [ Func
+      "_entry_"
+      []
+      [ ExprDrop $
+          ExprCall
+            (LabelIntrin IntrinPrintf)
+            [ ExprStr "%ld %ld %ld %ld\n",
+              ExprI64 1,
+              ExprI64 $ -2,
+              ExprI64 3,
+              ExprI64 $ -4
+            ],
+        ExprI64 0
+      ]
+  ]
+
 main :: IO ()
 main =
   mapM_
@@ -514,4 +532,4 @@ main =
       map show asm
     ]
   where
-    (ContextFunc strings _, asm) = compileFuncs (ContextFunc [] 0) program3
+    (ContextFunc strings _, asm) = compileFuncs (ContextFunc [] 0) program4
