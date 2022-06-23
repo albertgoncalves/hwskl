@@ -86,6 +86,7 @@ data Inst
   | InstAdd Op Op
   | InstSub Op Op
   | InstLeave
+  | InstDrop
 
 instance Show Inst where
   show (InstLabel label) = printf "%s:" label
@@ -102,6 +103,7 @@ instance Show Inst where
   show (InstJe op) = printf "\tje %s" (show op)
   show (InstAdd op0 op1) = printf "\tadd %s, %s" (show op0) (show op1)
   show (InstSub op0 op1) = printf "\tsub %s, %s" (show op0) (show op1)
+  show InstDrop = "\tadd rsp, 8"
   show InstLeave = "\tleave"
 
 data ContextExpr = ContextExpr ContextFunc [String] Bool
@@ -122,7 +124,7 @@ isRet (_ : exprs) = isRet exprs
 
 compileExpr :: ContextExpr -> Expr -> (ContextExpr, [Inst])
 compileExpr context0 (ExprDrop expr0) =
-  (context1, expr1 ++ [InstAdd (OpReg RegRsp) (OpImm 8)])
+  (context1, expr1 ++ [InstDrop])
   where
     (context1, expr1) = compileExpr context0 expr0
 compileExpr context0@(ContextExpr _ _ needStack) (ExprRet expr0) =
@@ -352,8 +354,7 @@ optPushPop [] = []
 optPushPop (InstPush opPush : InstPop opPop : insts)
   | opPush == opPop = optPushPop insts
   | otherwise = InstMov opPop opPush : optPushPop insts
-optPushPop (InstPush _ : InstAdd (OpReg RegRsp) (OpImm 8) : insts) =
-  optPushPop insts
+optPushPop (InstPush _ : InstDrop : insts) = optPushPop insts
 optPushPop (inst : insts) = inst : optPushPop insts
 
 optTailCall :: [Inst] -> [Inst]
