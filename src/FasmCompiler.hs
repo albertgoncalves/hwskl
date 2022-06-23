@@ -307,7 +307,7 @@ compileFuncArgs (reg : regs) (_ : args) =
   InstPush (OpReg reg) : compileFuncArgs regs args
 
 returnLast :: [Expr] -> [Expr]
-returnLast [] = []
+returnLast [] = undefined
 returnLast [ExprIf condition ifThen ifElse] =
   [ExprIf condition (returnLast ifThen) (returnLast ifElse)]
 returnLast [expr] = [ExprRet expr]
