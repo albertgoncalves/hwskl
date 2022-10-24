@@ -16,7 +16,7 @@ for x in bin build out; do
 done
 
 hsall () {
-    find "$WD/src" -type f -name '*.hs' | parallel '
+    find "$WD/src" -type f -name '*.hs' | parallel --will-cite '
         echo {}
         hlint {}
         ormolu -m inplace {}
