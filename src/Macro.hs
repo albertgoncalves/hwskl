@@ -76,7 +76,10 @@ main = do
   mapM_ print $ funcs ++ map (resolveFunc S.empty $ intoMap funcs) funcs
   where
     funcs =
-      [ Func "f" ["a", "b"] (Scope [] (ExprVar "a")),
+      [ Func
+          "f"
+          ["a", "b"]
+          (Scope [] (ExprCall False (ExprVar "g") [ExprVar "a", ExprVar "b"])),
         Func
           "g"
           ["x", "y"]
@@ -90,11 +93,5 @@ main = do
         Func
           "h"
           ["x", "y"]
-          ( Scope
-              [ StmtLet
-                  "z"
-                  (ExprCall False (ExprVar "f") [ExprVar "x", ExprVar "y"])
-              ]
-              (ExprVar "z")
-          )
+          (Scope [] (ExprCall True (ExprVar "f") [ExprVar "x", ExprVar "y"]))
       ]
