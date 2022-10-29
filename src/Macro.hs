@@ -65,6 +65,8 @@ resolveExpr visited funcLabels (ExprCall True (ExprVar var) callArgs)
     (funcArgs, expr) = (M.!) funcLabels var
     resolvedExpr = resolveExpr visited funcLabels expr
     resolvedCallArgs = map (resolveExpr visited funcLabels) callArgs
+resolveExpr _ _ (ExprCall True expr _) =
+  error $ printf "Unable to resolve `%s`" (show expr)
 resolveExpr visited funcLabels (ExprScope (Scope stmts expr)) =
   ExprScope $
     Scope (map (resolveStmt visited funcLabels) stmts) $
