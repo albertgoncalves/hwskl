@@ -1,5 +1,6 @@
 import Data.List (intercalate)
 import qualified Data.Map as M
+import qualified Data.Set as S
 import Text.Printf (printf)
 
 data Expr
@@ -44,47 +45,35 @@ intoFunc :: String -> [String] -> Expr -> Func
 intoFunc label args (ExprScope scope) = Func label args scope
 intoFunc label args expr = Func label args (Scope [] expr)
 
-resolveFunc :: M.Map String ([String], Expr) -> Func -> Func
-resolveFunc funcLabels (Func label args scope) =
-  intoFunc label args $ resolveExpr funcLabels $ ExprScope scope
+resolveFunc :: S.Set String -> M.Map String ([String], Expr) -> Func -> Func
+resolveFunc visited funcLabels (Func label args scope) =
+  intoFunc label args $
+    resolveExpr (S.insert label visited) funcLabels $
+      ExprScope scope
 
-resolveStmt :: M.Map String ([String], Expr) -> Stmt -> Stmt
-resolveStmt funcLabels (StmtLet var expr) =
-  StmtLet var $ resolveExpr funcLabels expr
+resolveStmt :: S.Set String -> M.Map String ([String], Expr) -> Stmt -> Stmt
+resolveStmt visited funcLabels (StmtLet var expr) =
+  StmtLet var $ resolveExpr visited funcLabels expr
 
-{-
-
-  f(a, b) { #g(a, b) }
-  g(a, b) { #f(a, b) }
-
----
-
-  f(a, b) { #f(a, b) }
-  g(a, b) { #g(a, b) }
-
--}
-
--- NOTE: Current implementation can fall into an infinite loop. We need to
--- detect cycles!
-resolveExpr :: M.Map String ([String], Expr) -> Expr -> Expr
-resolveExpr funcLabels (ExprCall True (ExprVar var) callArgs) =
-  if length callArgs == length funcArgs
-    then
-      ExprScope $
-        Scope (zipWith StmtLet funcArgs resolvedCallArgs) resolvedExpr
-    else undefined
+resolveExpr :: S.Set String -> M.Map String ([String], Expr) -> Expr -> Expr
+resolveExpr visited funcLabels (ExprCall True (ExprVar var) callArgs)
+  | S.member var visited = error "Cycle detected"
+  | length callArgs /= length funcArgs = error "Incorrect number of arguments"
+  | otherwise =
+    ExprScope $ Scope (zipWith StmtLet funcArgs resolvedCallArgs) resolvedExpr
   where
     (funcArgs, expr) = (M.!) funcLabels var
-    resolvedExpr = resolveExpr funcLabels expr
-    resolvedCallArgs = map (resolveExpr funcLabels) callArgs
-resolveExpr funcLabels (ExprScope (Scope stmts expr)) =
+    resolvedExpr = resolveExpr visited funcLabels expr
+    resolvedCallArgs = map (resolveExpr visited funcLabels) callArgs
+resolveExpr visited funcLabels (ExprScope (Scope stmts expr)) =
   ExprScope $
-    Scope (map (resolveStmt funcLabels) stmts) $ resolveExpr funcLabels expr
-resolveExpr _ expr = expr
+    Scope (map (resolveStmt visited funcLabels) stmts) $
+      resolveExpr visited funcLabels expr
+resolveExpr _ _ expr = expr
 
 main :: IO ()
 main = do
-  mapM_ print $ funcs ++ map (resolveFunc $ intoMap funcs) funcs
+  mapM_ print $ funcs ++ map (resolveFunc S.empty $ intoMap funcs) funcs
   where
     funcs =
       [ Func "f" ["a", "b"] (Scope [] (ExprVar "a")),
