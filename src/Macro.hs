@@ -67,11 +67,13 @@ resolveExpr visited funcLabels (ExprCall True (ExprVar var) callArgs)
     resolvedCallArgs = map (resolveExpr visited funcLabels) callArgs
 resolveExpr _ _ (ExprCall True expr _) =
   error $ printf "Unable to resolve `%s`" (show expr)
+resolveExpr _ _ expr@(ExprCall False _ _) = expr
 resolveExpr visited funcLabels (ExprScope (Scope stmts expr)) =
-  ExprScope $
-    Scope (map (resolveStmt visited funcLabels) stmts) $
-      resolveExpr visited funcLabels expr
-resolveExpr _ _ expr = expr
+  ExprScope $ Scope resolvedStmts resolvedExpr
+  where
+    resolvedExpr = resolveExpr visited funcLabels expr
+    resolvedStmts = map (resolveStmt visited funcLabels) stmts
+resolveExpr _ _ expr@(ExprVar _) = expr
 
 main :: IO ()
 main = do
