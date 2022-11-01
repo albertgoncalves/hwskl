@@ -60,7 +60,9 @@ resolveExpr visited funcLabels (ExprCall True (ExprVar var) callArgs)
   | S.member var visited = error "Cycle detected"
   | length callArgs /= length funcArgs = error "Incorrect number of arguments"
   | otherwise =
-    ExprScope $ Scope (zipWith StmtLet funcArgs resolvedCallArgs) resolvedExpr
+    case zipWith StmtLet funcArgs resolvedCallArgs of
+      [] -> resolvedExpr
+      resolvedStmts -> ExprScope $ Scope resolvedStmts resolvedExpr
   where
     (funcArgs, expr) = (M.!) funcLabels var
     resolvedExpr = resolveExpr visited funcLabels expr
@@ -69,10 +71,11 @@ resolveExpr _ _ (ExprCall True expr _) =
   error $ printf "Unable to resolve `%s`" (show expr)
 resolveExpr _ _ expr@(ExprCall False _ _) = expr
 resolveExpr visited funcLabels (ExprScope (Scope stmts expr)) =
-  ExprScope $ Scope resolvedStmts resolvedExpr
+  case map (resolveStmt visited funcLabels) stmts of
+    [] -> resolvedExpr
+    resolvedStmts -> ExprScope $ Scope resolvedStmts resolvedExpr
   where
     resolvedExpr = resolveExpr visited funcLabels expr
-    resolvedStmts = map (resolveStmt visited funcLabels) stmts
 resolveExpr _ _ expr@(ExprVar _) = expr
 
 main :: IO ()
@@ -96,6 +99,10 @@ main = do
           ),
         Func
           "h"
-          ["x", "y"]
-          (Scope [] (ExprCall True (ExprVar "f") [ExprVar "x", ExprVar "y"]))
+          []
+          (Scope [] (ExprCall True (ExprVar "f") [ExprVar "v", ExprVar "u"])),
+        Func
+          "i"
+          []
+          (Scope [] (ExprCall True (ExprVar "h") []))
       ]
