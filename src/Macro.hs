@@ -80,7 +80,9 @@ resolveExpr _ _ expr@(ExprVar _) = expr
 
 main :: IO ()
 main = do
-  mapM_ print $ funcs ++ map (resolveFunc S.empty $ intoMap funcs) funcs
+  mapM_ print funcs
+  putChar '\n'
+  mapM_ (print . resolveFunc S.empty (intoMap funcs)) funcs
   where
     funcs =
       [ Func
