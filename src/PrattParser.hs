@@ -39,23 +39,31 @@ data Token
   | TokenIdent String
   deriving (Show)
 
+intoToken :: Char -> Maybe Token
+intoToken '(' = Just TokenLParen
+intoToken ')' = Just TokenRParen
+intoToken '[' = Just TokenLBracket
+intoToken ']' = Just TokenRBracket
+intoToken ',' = Just TokenComma
+intoToken '+' = Just TokenAdd
+intoToken '*' = Just TokenMul
+intoToken '-' = Just TokenSub
+intoToken _ = Nothing
+
 tokenize :: String -> [Token]
 tokenize [] = []
-tokenize ('(' : xs) = TokenLParen : tokenize xs
-tokenize (')' : xs) = TokenRParen : tokenize xs
-tokenize ('[' : xs) = TokenLBracket : tokenize xs
-tokenize (']' : xs) = TokenRBracket : tokenize xs
-tokenize (',' : xs) = TokenComma : tokenize xs
-tokenize ('+' : xs) = TokenAdd : tokenize xs
-tokenize ('*' : xs) = TokenMul : tokenize xs
-tokenize ('-' : xs) = TokenSub : tokenize xs
-tokenize (x : xs)
-  | isDigit x =
-    let (as, bs) = span isDigit xs in TokenInt (read $ x : as) : tokenize bs
-  | isLower x =
-    let (as, bs) = span isAlphaNum xs in TokenIdent (x : as) : tokenize bs
-  | isSpace x = tokenize $ dropWhile isSpace xs
-  | otherwise = undefined
+tokenize (x : xs) =
+  case intoToken x of
+    Just token -> token : tokenize xs
+    Nothing
+      | isDigit x ->
+        let (as, bs) = span isDigit xs
+         in TokenInt (read $ x : as) : tokenize bs
+      | isLower x ->
+        let (as, bs) = span isAlphaNum xs
+         in TokenIdent (x : as) : tokenize bs
+      | isSpace x -> tokenize $ dropWhile isSpace xs
+    _ -> undefined
 
 precPrefix :: Token -> Either Token (Int, UnOp)
 precPrefix TokenSub = Right (9, UnOpMinus)
