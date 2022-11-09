@@ -102,7 +102,20 @@ main = do
         Func
           "h"
           []
-          (Scope [] (ExprCall True (ExprVar "f") [ExprVar "v", ExprVar "u"])),
+          ( Scope
+              []
+              ( ExprCall
+                  True
+                  (ExprVar "f")
+                  [ ExprScope
+                      ( Scope
+                          [StmtLet "v" (ExprCall False (ExprVar "i") [])]
+                          (ExprVar "v")
+                      ),
+                    ExprVar "u"
+                  ]
+              )
+          ),
         Func
           "i"
           []
