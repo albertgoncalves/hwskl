@@ -16,8 +16,8 @@ instance Show Expr where
   show (ExprCall exprs) = printf "(%s)" (unwords $ map show exprs)
 
 data Parser = Parser
-  { parserTokens :: [String],
-    parserRanks :: M.Map String (Int, Int)
+  { parserRanks :: M.Map String (Int, Int),
+    parserTokens :: [String]
   }
   deriving (Show)
 
@@ -123,18 +123,25 @@ parse = do
       parse
     _ -> parseExpr
 
+tokenize :: String -> [String]
+tokenize [] = []
+tokenize (' ' : cs) = tokenize cs
+tokenize ('(' : cs) = "(" : tokenize cs
+tokenize (')' : cs) = ")" : tokenize cs
+tokenize cs = a : tokenize b
+  where
+    (a, b) = break (`elem` " ()") cs
+
 main :: IO ()
 main =
   print $
     runState parse $
-      Parser
-        ( concatMap
-            words
+      Parser M.empty $
+        tokenize $
+          unwords
             [ "infixl + 1",
               "infixl - 1",
               "infixl * 2",
               "infixr . 3",
-              "f0 ( f1 a b0 ) 0 * f2 c + f3 - 1 * f . g . h"
+              "f0 (f1 a b0) 0 * f2 c + f3 - 1 * f . g . h"
             ]
-        )
-        M.empty
