@@ -1,4 +1,6 @@
 import Data.Char (isAlphaNum, isDigit, isLower, isSpace)
+import Data.List (intercalate)
+import Text.Printf (printf)
 
 -- NOTE: See `https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html`.
 
@@ -6,7 +8,11 @@ data UnOp
   = UnOpMinus
   | UnOpBang
   | UnOpTilda
-  deriving (Show)
+
+instance Show UnOp where
+  show UnOpMinus = "-"
+  show UnOpBang = "!"
+  show UnOpTilda = "~"
 
 data BinOp
   = BinOpAdd
@@ -14,7 +20,13 @@ data BinOp
   | BinOpMul
   | BinOpDiv
   | BinOpEq
-  deriving (Show)
+
+instance Show BinOp where
+  show BinOpAdd = "+"
+  show BinOpSub = "-"
+  show BinOpMul = "*"
+  show BinOpDiv = "/"
+  show BinOpEq = "=="
 
 data Ast
   = AstUnOp UnOp Ast
@@ -23,7 +35,16 @@ data Ast
   | AstVar String
   | AstAccess Ast [Ast]
   | AstCall Ast [Ast]
-  deriving (Show)
+
+instance Show Ast where
+  show (AstUnOp op expr) = printf "%s(%s)" (show op) (show expr)
+  show (AstBinOp op l r) = printf "%s(%s, %s)" (show op) (show l) (show r)
+  show (AstInt int) = show int
+  show (AstVar str) = str
+  show (AstAccess array indices) =
+    printf "%s[%s]" (show array) (intercalate ", " $ map show indices)
+  show (AstCall func args) =
+    printf "%s(%s)" (show func) (intercalate ", " $ map show args)
 
 data Token
   = TokenEnd
@@ -109,26 +130,24 @@ parseRight :: Ast -> [Token] -> Int -> Either Token (Ast, [Token])
 parseRight expr [] _ = Right (expr, [])
 parseRight expr (TokenLParen : TokenRParen : xs) prec =
   parseRight (AstCall expr []) xs prec
-parseRight expr xs0'@(TokenLParen : xs0) prec =
-  if precParen < prec
-    then Right (expr, xs0')
-    else do
-      r <- parseArgs xs0
-      case r of
-        (args, TokenRParen : xs1) ->
-          parseRight (AstCall expr args) xs1 prec
-        (_, x : _) -> Left x
-        (_, []) -> Left TokenEnd
-parseRight expr xs0'@(TokenLBracket : xs0) prec =
-  if precBracket < prec
-    then Right (expr, xs0')
-    else do
-      r <- parseArgs xs0
-      case r of
-        (args, TokenRBracket : xs1) ->
-          parseRight (AstAccess expr args) xs1 prec
-        (_, x : _) -> Left x
-        (_, []) -> Left TokenEnd
+parseRight expr xs0'@(TokenLParen : xs0) prec
+  | precParen < prec = Right (expr, xs0')
+  | otherwise = do
+    r <- parseArgs xs0
+    case r of
+      (args, TokenRParen : xs1) ->
+        parseRight (AstCall expr args) xs1 prec
+      (_, x : _) -> Left x
+      (_, []) -> Left TokenEnd
+parseRight expr xs0'@(TokenLBracket : xs0) prec
+  | precBracket < prec = Right (expr, xs0')
+  | otherwise = do
+    r <- parseArgs xs0
+    case r of
+      (args, TokenRBracket : xs1) ->
+        parseRight (AstAccess expr args) xs1 prec
+      (_, x : _) -> Left x
+      (_, []) -> Left TokenEnd
 parseRight left xs0'@(x : xs0) prec =
   case precInfix x of
     Right (precInfixL, precInfixR, op) ->
@@ -147,4 +166,4 @@ parse xs0 prec0 = do
     (left, xs1) -> parseRight left xs1 prec0
 
 main :: IO ()
-main = print $ parse (tokenize "f0()(f1(), x)[0] + -1 * -2") 0
+main = either undefined print $ parse (tokenize "f0()(f1(), x)[0] + -1 * -2") 0
