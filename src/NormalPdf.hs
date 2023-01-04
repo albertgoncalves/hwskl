@@ -2,8 +2,8 @@ normalPdf :: Float -> Float -> Float -> Float
 normalPdf mu sigma x
   | sigma <= 0.0 = error "sigma <= 0.0"
   | otherwise =
-    (1.0 / sqrt (two_sigma_sq * pi))
-      * (exp . negate) (((x - mu) ** 2.0) / two_sigma_sq)
+      (1.0 / sqrt (two_sigma_sq * pi))
+        * (exp . negate) (((x - mu) ** 2.0) / two_sigma_sq)
   where
     two_sigma_sq = 2.0 * (sigma ** 2.0)
 

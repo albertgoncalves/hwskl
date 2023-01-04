@@ -31,7 +31,7 @@ solve (m, v) k = case lookup k m of
       (m', v')
         | s == 0 = (m, 1)
         | otherwise =
-          foldl' solve (m, 0) $ zip (move p) (repeat $ Step $ s - 1)
+            foldl' solve (m, 0) $ zip (move p) (repeat $ Step $ s - 1)
 
 main :: IO ()
 main = print $ snd $ solve (empty, 0) (Pos 6, Step 32)

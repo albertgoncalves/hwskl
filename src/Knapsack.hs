@@ -9,9 +9,9 @@ knapsackRec vs ws n w
   | (n == 0) || (w == 0) = 0
   | w < (ws ! (n - 1)) = knapsackRec vs ws (n - 1) w
   | otherwise =
-    max
-      ((vs ! (n - 1)) + knapsackRec vs ws (n - 1) (w - (ws ! (n - 1))))
-      (knapsackRec vs ws (n - 1) w)
+      max
+        ((vs ! (n - 1)) + knapsackRec vs ws (n - 1) (w - (ws ! (n - 1))))
+        (knapsackRec vs ws (n - 1) w)
 
 knapsackMemo ::
   Memo ->
@@ -26,8 +26,8 @@ knapsackMemo m vs ws n w =
     Nothing | (n == 0) || (w == 0) -> (insert k 0 m, 0)
     Nothing
       | w < (ws ! (n - 1)) ->
-        let (m0, v) = knapsackMemo m vs ws (n - 1) w
-         in (insert k v m0, v)
+          let (m0, v) = knapsackMemo m vs ws (n - 1) w
+           in (insert k v m0, v)
     Nothing ->
       let (m0, v0) = knapsackMemo m vs ws (n - 1) (w - (ws ! (n - 1)))
           (m1, v1) = knapsackMemo m0 vs ws (n - 1) w

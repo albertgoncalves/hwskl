@@ -78,11 +78,11 @@ tokenize (x : xs) =
     Just token -> token : tokenize xs
     Nothing
       | isDigit x ->
-        let (as, bs) = span isDigit xs
-         in TokenInt (read $ x : as) : tokenize bs
+          let (as, bs) = span isDigit xs
+           in TokenInt (read $ x : as) : tokenize bs
       | isLower x ->
-        let (as, bs) = span isAlphaNum xs
-         in TokenIdent (x : as) : tokenize bs
+          let (as, bs) = span isAlphaNum xs
+           in TokenIdent (x : as) : tokenize bs
       | isSpace x -> tokenize $ dropWhile isSpace xs
     _ -> undefined
 
@@ -133,21 +133,21 @@ parseRight expr (TokenLParen : TokenRParen : xs) prec =
 parseRight expr xs0'@(TokenLParen : xs0) prec
   | precParen < prec = Right (expr, xs0')
   | otherwise = do
-    r <- parseArgs xs0
-    case r of
-      (args, TokenRParen : xs1) ->
-        parseRight (AstCall expr args) xs1 prec
-      (_, x : _) -> Left x
-      (_, []) -> Left TokenEnd
+      r <- parseArgs xs0
+      case r of
+        (args, TokenRParen : xs1) ->
+          parseRight (AstCall expr args) xs1 prec
+        (_, x : _) -> Left x
+        (_, []) -> Left TokenEnd
 parseRight expr xs0'@(TokenLBracket : xs0) prec
   | precBracket < prec = Right (expr, xs0')
   | otherwise = do
-    r <- parseArgs xs0
-    case r of
-      (args, TokenRBracket : xs1) ->
-        parseRight (AstAccess expr args) xs1 prec
-      (_, x : _) -> Left x
-      (_, []) -> Left TokenEnd
+      r <- parseArgs xs0
+      case r of
+        (args, TokenRBracket : xs1) ->
+          parseRight (AstAccess expr args) xs1 prec
+        (_, x : _) -> Left x
+        (_, []) -> Left TokenEnd
 parseRight left xs0'@(x : xs0) prec =
   case precInfix x of
     Right (precInfixL, precInfixR, op) ->

@@ -60,9 +60,9 @@ resolveExpr visited funcLabels (ExprCall True (ExprVar var) callArgs)
   | S.member var visited = error "Cycle detected"
   | length callArgs /= length funcArgs = error "Incorrect number of arguments"
   | otherwise =
-    case zipWith StmtLet funcArgs resolvedCallArgs of
-      [] -> resolvedExpr
-      resolvedStmts -> ExprScope $ Scope resolvedStmts resolvedExpr
+      case zipWith StmtLet funcArgs resolvedCallArgs of
+        [] -> resolvedExpr
+        resolvedStmts -> ExprScope $ Scope resolvedStmts resolvedExpr
   where
     (funcArgs, expr) = (M.!) funcLabels var
     resolvedExpr = resolveExpr visited funcLabels expr

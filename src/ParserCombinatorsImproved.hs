@@ -77,8 +77,8 @@ satisfy f = Parser $ \i ->
   case uncons $ rest i of
     Just (x, rest')
       | f x ->
-        let p = pos i + 1
-         in Consumed (Right ((Min p, x), Input p rest'))
+          let p = pos i + 1
+           in Consumed (Right ((Min p, x), Input p rest'))
       | otherwise -> Empty $ Left $ pos i
     Nothing -> Empty $ Left $ pos i
 

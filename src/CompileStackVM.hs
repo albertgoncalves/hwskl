@@ -304,18 +304,18 @@ compileFunc compiler0 (AstFunc name [] [] body returnExpr) =
     context2 = compileExpr (context0 $ getContextCompiler context1) returnExpr
 compileFunc compiler0 (AstFunc name args locals body returnExpr) =
   appendCompilerInsts (getContextCompiler context2) $
-    PreInstLabelSet returnLabel :
-    let n = length args + length locals - 1
-     in if n == 0
-          then [InstStore, InstLitInt n, InstSwap, InstJump]
-          else
-            [ InstStore,
-              InstLitInt n,
-              InstDrop,
-              InstLitInt n,
-              InstSwap,
-              InstJump
-            ]
+    PreInstLabelSet returnLabel
+      : let n = length args + length locals - 1
+         in if n == 0
+              then [InstStore, InstLitInt n, InstSwap, InstJump]
+              else
+                [ InstStore,
+                  InstLitInt n,
+                  InstDrop,
+                  InstLitInt n,
+                  InstSwap,
+                  InstJump
+                ]
   where
     returnLabel = makeReturnLabel name
     context0 = Context 0 (getVars $ args ++ locals) $ Labels returnLabel []
@@ -324,11 +324,11 @@ compileFunc compiler0 (AstFunc name args locals body returnExpr) =
         compileStmt
         ( context0 $
             appendCompilerInsts compiler0 $
-              PreInstLabelSet name :
-              let n = length locals
-               in if n == 0
-                    then []
-                    else [InstRsrv, InstLitInt n]
+              PreInstLabelSet name
+                : let n = length locals
+                   in if n == 0
+                        then []
+                        else [InstRsrv, InstLitInt n]
         )
         body
     context2 = compileExpr (context0 $ getContextCompiler context1) returnExpr

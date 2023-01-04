@@ -184,18 +184,18 @@ compileExpr
   (ContextExpr (ContextFunc strings0 k0) locals0 needStack0)
   (ExprIf ifCondition0 ifThen1 ifElse2)
     | thenReturns && elseReturns =
-      ( context3,
-        ifCondition1 ++ ifElse3 ++ [InstLabel labelThen] ++ ifThen2
-      )
+        ( context3,
+          ifCondition1 ++ ifElse3 ++ [InstLabel labelThen] ++ ifThen2
+        )
     | thenReturns || elseReturns = undefined
     | otherwise =
-      ( context3,
-        ifCondition1
-          ++ ifElse3
-          ++ [InstJmp (OpLabel labelEnd), InstLabel labelThen]
-          ++ ifThen2
-          ++ [InstLabel labelEnd]
-      )
+        ( context3,
+          ifCondition1
+            ++ ifElse3
+            ++ [InstJmp (OpLabel labelEnd), InstLabel labelThen]
+            ++ ifThen2
+            ++ [InstLabel labelEnd]
+        )
     where
       thenReturns = isRet ifThen1
       elseReturns = isRet ifElse2

@@ -21,7 +21,7 @@ distance a b
     f i j
       | (a' ! (i - 1)) == (b' ! (j - 1)) = table ! (i - 1, j - 1)
       | otherwise =
-        1 + minimum (map (table !) [(i, j - 1), (i - 1, j), (i - 1, j - 1)])
+          1 + minimum (map (table !) [(i, j - 1), (i - 1, j), (i - 1, j - 1)])
 
 main :: IO ()
 main =

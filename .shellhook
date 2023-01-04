@@ -19,14 +19,14 @@ hsall () {
     find "$WD/src" -type f -name '*.hs' | parallel --will-cite '
         echo {}
         hlint {}
-        ormolu -m inplace {}
+        ormolu -i --no-cabal {}
         echo ""
     '
 }
 
 lint () {
     hlint "$1"
-    ormolu -m inplace "$1"
+    ormolu -i --no-cabal "$1"
 }
 
 export FLAGS=(

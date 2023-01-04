@@ -12,7 +12,8 @@ dpList xs = 1 : map f (tail xs)
         map snd $
           takeWhile ((< x) . fst) $
             dropWhile ((3 <) . (x -) . fst) $
-              zip xs $ dpList xs
+              zip xs $
+                dpList xs
 
 dpArray :: Array Int Int -> Array Int Int
 dpArray xs = listArray (bounds xs) (1 : map f [1 ..])

@@ -41,14 +41,14 @@ innerScope parentScope k args = (prelude ++) . map (injectScope scope (succ k))
   where
     scope = scopeLabel k
     prelude =
-      AstAssign scope (AstCall (AstVar "@newScopeFrom") [AstVar parentScope]) :
-      map
-        ( \arg ->
-            AstCall
-              (AstVar "@insertScope")
-              [AstVar scope, AstString arg, AstVar arg]
-        )
-        args
+      AstAssign scope (AstCall (AstVar "@newScopeFrom") [AstVar parentScope])
+        : map
+          ( \arg ->
+              AstCall
+                (AstVar "@insertScope")
+                [AstVar scope, AstString arg, AstVar arg]
+          )
+          args
 
 injectScope :: String -> Int -> Ast -> Ast
 injectScope _ _ (AstPair _ _) = undefined
