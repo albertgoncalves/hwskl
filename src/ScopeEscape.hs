@@ -1,5 +1,7 @@
 import Control.Monad (void)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
+import Data.List (foldl')
+import qualified Data.Set as S
 import Text.ParserCombinators.ReadP
   ( ReadP,
     char,
@@ -194,11 +196,73 @@ parse = many1 stmt <* token eof
 --      (printf "%ld\n" (callclosure 2 f))
 --  }
 
+walkOrphans :: (S.Set String, [String]) -> Stmt -> (S.Set String, [String])
+walkOrphans (visited, orphans) stmt = (orphans ++) <$> stmtOrphans visited stmt
+
+intrinsics :: [String]
+intrinsics = ["printf", "+", "-", "*", "/", "%"]
+
+exprOrphans :: S.Set String -> Expr -> [String]
+exprOrphans _ (ExprInt _) = []
+exprOrphans visited (ExprVar var)
+  | S.member var visited = []
+  | otherwise = [var]
+exprOrphans _ (ExprStr _) = []
+exprOrphans visited0 (ExprFunc (Func args stmts expr)) =
+  let (visited1, orphans) =
+        foldl' walkOrphans (S.fromList $ intrinsics ++ args, []) stmts
+   in S.toList (S.difference (S.fromList orphans) visited0)
+        ++ exprOrphans visited1 expr
+exprOrphans visited (ExprCall call args) =
+  concatMap (exprOrphans visited) $ call : args
+
+stmtOrphans :: S.Set String -> Stmt -> (S.Set String, [String])
+stmtOrphans visited (StmtBind var expr)
+  | var `elem` orphans = (visited, orphans)
+  | otherwise = (S.insert var visited, orphans)
+  where
+    orphans = exprOrphans visited expr
+stmtOrphans _ (StmtDecl _ _) = undefined
+stmtOrphans _ (StmtSetPtr _ _) = undefined
+stmtOrphans visited (StmtEffect expr) = (visited, exprOrphans visited expr)
+
+exprDeref :: S.Set String -> Expr -> Expr
+exprDeref _ expr@(ExprInt _) = expr
+exprDeref derefs expr@(ExprVar var)
+  | S.member var derefs = ExprCall (ExprVar "deref") [expr]
+  | otherwise = expr
+exprDeref _ expr@(ExprStr _) = expr
+exprDeref derefs0 func@(ExprFunc (Func args stmts expr))
+  | null orphans =
+      ExprFunc $
+        Func args (map (stmtDeref derefs1) stmts) (exprDeref derefs1 expr)
+  | otherwise =
+      ExprCall
+        (ExprVar "alloc")
+        $ ExprFunc
+          ( Func
+              (args ++ orphans)
+              (map (stmtDeref derefs1) stmts)
+              (exprDeref derefs1 expr)
+          )
+          : map ExprVar orphans
+  where
+    orphans = exprOrphans S.empty func
+    derefs1 = S.union derefs0 $ S.fromList orphans
+exprDeref derefs (ExprCall call args) =
+  ExprCall (exprDeref derefs call) (map (exprDeref derefs) args)
+
+stmtDeref :: S.Set String -> Stmt -> Stmt
+stmtDeref derefs (StmtBind var expr) = StmtBind var (exprDeref derefs expr)
+stmtDeref _ (StmtDecl _ _) = undefined
+stmtDeref _ (StmtSetPtr _ _) = undefined
+stmtDeref derefs (StmtEffect expr) = StmtEffect $ exprDeref derefs expr
+
 main :: IO ()
 main =
   ( putStrLn
       . unlines
-      . map show
+      . map (show . stmtDeref S.empty)
       . fst
       . head
       . readP_to_S parse
