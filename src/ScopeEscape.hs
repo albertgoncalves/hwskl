@@ -62,9 +62,8 @@ showStmt n (StmtDecl var expr) = printf "decl %s %s" var $ showExpr n expr
 showStmt n (StmtSetPtr var expr) = printf "setptr %s %s" var $ showExpr n expr
 
 showFunc :: Int -> Func -> String
-showFunc n (Func [] stmts expr) = printf "\\ %s" $ showScope n stmts expr
 showFunc n (Func args stmts expr) =
-  printf "\\ %s %s" (unwords args) $ showScope n stmts expr
+  printf "\\%s %s" (unwords args) $ showScope n stmts expr
 
 instance Show Stmt where
   show = showStmt 0
