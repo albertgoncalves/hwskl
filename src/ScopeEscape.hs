@@ -1,6 +1,6 @@
 import Control.Monad (void)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
-import Data.List (foldl')
+import Data.List (foldl', foldl1')
 import qualified Data.Set as S
 import Text.ParserCombinators.ReadP
   ( ReadP,
@@ -32,6 +32,11 @@ data Stmt
   | StmtEffect Expr
 
 data Func = Func [String] [Stmt] Expr
+
+data Scope = Scope
+  { scopeBindings :: S.Set String,
+    scopeClosures :: S.Set String
+  }
 
 showExpr :: Int -> Expr -> String
 showExpr _ (ExprInt int) = show int
@@ -196,73 +201,83 @@ parse = many1 stmt <* token eof
 --      (printf "%ld\n" (callclosure 2 f))
 --  }
 
-walkOrphans :: (S.Set String, [String]) -> Stmt -> (S.Set String, [String])
-walkOrphans (visited, orphans) stmt = (orphans ++) <$> stmtOrphans visited stmt
+intrinsics :: S.Set String
+intrinsics = S.fromList ["printf", "+", "-", "*", "/", "%"]
 
-intrinsics :: [String]
-intrinsics = ["printf", "+", "-", "*", "/", "%"]
-
-exprOrphans :: S.Set String -> Expr -> [String]
-exprOrphans _ (ExprInt _) = []
-exprOrphans visited (ExprVar var)
-  | S.member var visited = []
-  | otherwise = [var]
-exprOrphans _ (ExprStr _) = []
-exprOrphans visited0 (ExprFunc (Func args stmts expr)) =
-  let (visited1, orphans) =
-        foldl' walkOrphans (S.fromList $ intrinsics ++ args, []) stmts
-   in S.toList (S.difference (S.fromList orphans) visited0)
-        ++ exprOrphans visited1 expr
-exprOrphans visited (ExprCall call args) =
-  concatMap (exprOrphans visited) $ call : args
-
-stmtOrphans :: S.Set String -> Stmt -> (S.Set String, [String])
-stmtOrphans visited (StmtBind var expr)
-  | var `elem` orphans = (visited, orphans)
-  | otherwise = (S.insert var visited, orphans)
+exprCollect :: S.Set String -> Expr -> S.Set String
+exprCollect _ (ExprInt _) = S.empty
+exprCollect bindings (ExprVar var)
+  | S.member var bindings = S.empty
+  | otherwise = S.singleton var
+exprCollect _ (ExprStr _) = S.empty
+exprCollect bindings0 (ExprFunc (Func args stmts expr)) =
+  S.difference (S.union closures1 closures2) bindings0
   where
-    orphans = exprOrphans visited expr
-stmtOrphans _ (StmtDecl _ _) = undefined
-stmtOrphans _ (StmtSetPtr _ _) = undefined
-stmtOrphans visited (StmtEffect expr) = (visited, exprOrphans visited expr)
+    (Scope bindings1 closures1) =
+      foldl'
+        stmtCollect
+        (Scope (S.union intrinsics $ S.fromList args) S.empty)
+        stmts
+    closures2 = exprCollect bindings1 expr
+exprCollect bindings (ExprCall call args) =
+  foldl1' S.union $ map (exprCollect bindings) $ call : args
 
-exprDeref :: S.Set String -> Expr -> Expr
-exprDeref _ expr@(ExprInt _) = expr
-exprDeref derefs expr@(ExprVar var)
-  | S.member var derefs = ExprCall (ExprVar "deref") [expr]
+stmtCollect :: Scope -> Stmt -> Scope
+stmtCollect (Scope bindings closures0) (StmtBind var expr)
+  | S.member var closures1 = Scope bindings closures1
+  | otherwise = Scope (S.insert var bindings) closures1
+  where
+    closures1 = S.union closures0 $ exprCollect bindings expr
+stmtCollect _ (StmtDecl _ _) = undefined
+stmtCollect _ (StmtSetPtr _ _) = undefined
+stmtCollect (Scope bindings closures) (StmtEffect expr) =
+  Scope bindings (S.union closures $ exprCollect bindings expr)
+
+exprClosure :: Scope -> Expr -> Expr
+exprClosure _ expr@(ExprInt _) = expr
+exprClosure (Scope _ closures) expr@(ExprVar var)
+  | S.member var closures = ExprCall (ExprVar "deref") [expr]
   | otherwise = expr
-exprDeref _ expr@(ExprStr _) = expr
-exprDeref derefs0 func@(ExprFunc (Func args stmts expr))
-  | null orphans =
-      ExprFunc $
-        Func args (map (stmtDeref derefs1) stmts) (exprDeref derefs1 expr)
-  | otherwise =
-      ExprCall
-        (ExprVar "alloc")
-        $ ExprFunc
-          ( Func
-              (args ++ orphans)
-              (map (stmtDeref derefs1) stmts)
-              (exprDeref derefs1 expr)
-          )
-          : map ExprVar orphans
+exprClosure _ expr@(ExprStr _) = expr
+exprClosure _ (ExprFunc (Func args stmts0 expr0)) =
+  case S.toList $ S.difference closures2 bindings of
+    [] -> ExprFunc $ Func args stmts1 expr1
+    escaped ->
+      ExprCall (ExprVar "alloc") $
+        ExprFunc (Func (args ++ escaped) stmts1 expr1) : map ExprVar escaped
   where
-    orphans = exprOrphans S.empty func
-    derefs1 = S.union derefs0 $ S.fromList orphans
-exprDeref derefs (ExprCall call args) =
-  ExprCall (exprDeref derefs call) (map (exprDeref derefs) args)
+    (Scope bindings closures1, stmts1) =
+      transform (Scope (S.union intrinsics $ S.fromList args) S.empty) stmts0
+    closures2 = S.union closures1 $ exprCollect bindings expr0
+    expr1 = exprClosure (Scope bindings closures2) expr0
+exprClosure scope (ExprCall call args) =
+  ExprCall (exprClosure scope call) $ map (exprClosure scope) args
 
-stmtDeref :: S.Set String -> Stmt -> Stmt
-stmtDeref derefs (StmtBind var expr) = StmtBind var (exprDeref derefs expr)
-stmtDeref _ (StmtDecl _ _) = undefined
-stmtDeref _ (StmtSetPtr _ _) = undefined
-stmtDeref derefs (StmtEffect expr) = StmtEffect $ exprDeref derefs expr
+stmtClosure :: Scope -> Stmt -> Stmt
+stmtClosure scope@(Scope bindings closures) (StmtBind var expr0)
+  | S.member var bindings = StmtDecl var expr1
+  | S.member var closures = StmtSetPtr var expr1
+  | otherwise = undefined
+  where
+    expr1 = exprClosure scope expr0
+stmtClosure _ (StmtDecl _ _) = undefined
+stmtClosure _ (StmtSetPtr _ _) = undefined
+stmtClosure scope (StmtEffect expr) = StmtEffect $ exprClosure scope expr
+
+transform :: Scope -> [Stmt] -> (Scope, [Stmt])
+transform scope [] = (scope, [])
+transform scope0 (stmt : stmts) =
+  (stmtClosure scope1 stmt :) <$> transform scope1 stmts
+  where
+    scope1 = stmtCollect scope0 stmt
 
 main :: IO ()
 main =
   ( putStrLn
       . unlines
-      . map (show . stmtDeref S.empty)
+      . map show
+      . snd
+      . transform (Scope intrinsics S.empty)
       . fst
       . head
       . readP_to_S parse
@@ -271,17 +286,19 @@ main =
     \    a = 0\
     \    b = 1\
     \    \\ {\
-    \        c = b\
-    \        b = (+ a c)\
-    \        a = c\
-    \        c\
+    \        \\ {\
+    \            c = b\
+    \            b = (+ a c)\
+    \            a = c\
+    \            c\
+    \        }\
     \    }\
     \}\
     \\
     \f = (fib)\
-    \(f)\
-    \(f)\
-    \(f)\
-    \(f)\
-    \(f)\
-    \(printf \"%ld\n\" (f))"
+    \((f))\
+    \((f))\
+    \((f))\
+    \((f))\
+    \((f))\
+    \(printf \"%ld\n\" ((f)))"
