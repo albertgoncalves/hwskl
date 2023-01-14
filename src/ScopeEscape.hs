@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 import Control.Monad (void)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
 import Data.List (foldl', foldl1')
@@ -233,6 +235,31 @@ stmtCollect _ (StmtSetPtr _ _) = undefined
 stmtCollect (Scope bindings closures) (StmtEffect expr) =
   Scope bindings (S.union closures $ exprCollect bindings expr)
 
+exprEscaped :: Expr -> [String]
+exprEscaped (ExprInt _) = []
+exprEscaped (ExprVar _) = []
+exprEscaped (ExprStr _) = []
+exprEscaped (ExprFunc _) = []
+exprEscaped (ExprCall (ExprVar "alloc") (ExprFunc _ : args)) =
+  map
+    ( \case
+        ExprVar var -> var
+        _ -> undefined
+    )
+    args
+exprEscaped (ExprCall _ _) = []
+
+stmtEscaped :: Stmt -> [String]
+stmtEscaped (StmtBind _ _) = undefined
+stmtEscaped (StmtDecl _ expr) = exprEscaped expr
+stmtEscaped (StmtSetPtr _ expr) = exprEscaped expr
+stmtEscaped (StmtEffect expr) = exprEscaped expr
+
+allocDecls :: S.Set String -> Stmt -> Stmt
+allocDecls decls (StmtDecl var expr)
+  | S.member var decls = StmtDecl var $ ExprCall (ExprVar "alloc") [expr]
+allocDecls _ stmt = stmt
+
 exprClosure :: Scope -> Expr -> Expr
 exprClosure _ expr@(ExprInt _) = expr
 exprClosure (Scope _ closures) expr@(ExprVar var)
@@ -241,15 +268,23 @@ exprClosure (Scope _ closures) expr@(ExprVar var)
 exprClosure _ expr@(ExprStr _) = expr
 exprClosure _ (ExprFunc (Func args stmts0 expr0)) =
   case S.toList $ S.difference closures2 bindings of
-    [] -> ExprFunc $ Func args stmts1 expr1
-    escaped ->
+    [] -> ExprFunc $ Func args stmts2 expr1
+    fromAbove ->
       ExprCall (ExprVar "alloc") $
-        ExprFunc (Func (args ++ escaped) stmts1 expr1) : map ExprVar escaped
+        ExprFunc (Func (args ++ fromAbove) stmts2 expr1)
+          : map ExprVar fromAbove
   where
     (Scope bindings closures1, stmts1) =
       transform (Scope (S.union intrinsics $ S.fromList args) S.empty) stmts0
     closures2 = S.union closures1 $ exprCollect bindings expr0
     expr1 = exprClosure (Scope bindings closures2) expr0
+    stmts2 =
+      map
+        ( allocDecls $
+            S.fromList $
+              concatMap stmtEscaped stmts1 ++ exprEscaped expr1
+        )
+        stmts1
 exprClosure scope (ExprCall call args) =
   ExprCall (exprClosure scope call) $ map (exprClosure scope) args
 
@@ -271,13 +306,66 @@ transform scope0 (stmt : stmts) =
   where
     scope1 = stmtCollect scope0 stmt
 
+funcLabel :: Int -> String
+funcLabel = printf "_fn_%d_"
+
+exprLift :: Int -> Expr -> (Int, Expr, [(String, Func)])
+exprLift k expr@(ExprInt _) = (k, expr, [])
+exprLift k expr@(ExprVar _) = (k, expr, [])
+exprLift k expr@(ExprStr _) = (k, expr, [])
+exprLift k0 (ExprFunc (Func args stmts0 expr0)) =
+  ( succ k2,
+    ExprVar label,
+    funcs1 ++ funcs2 ++ [(label, Func args stmts1 expr2)]
+  )
+  where
+    (k1, stmts1, funcs1) = stmtLift k0 stmts0
+    (k2, expr2, funcs2) = exprLift k1 expr0
+    label = funcLabel k2
+exprLift k0 (ExprCall call0 args0) = (k2, ExprCall call1 args2, funcs2)
+  where
+    (k1, call1, funcs1) = exprLift k0 call0
+    (k2, args2, funcs2) =
+      foldl'
+        ( \(k3, exprs3, funcs3) expr3 ->
+            let (k4, expr4, funcs4) = exprLift k3 expr3
+             in (k4, exprs3 ++ [expr4], funcs3 ++ funcs4)
+        )
+        (k1, [], funcs1)
+        args0
+
+stmtLift :: Int -> [Stmt] -> (Int, [Stmt], [(String, Func)])
+stmtLift k [] = (k, [], [])
+stmtLift _ (StmtBind _ _ : _) = undefined
+stmtLift k0 (StmtDecl var expr0 : stmts0) =
+  (k2, StmtDecl var expr1 : stmts2, funcs1 ++ funcs2)
+  where
+    (k1, expr1, funcs1) = exprLift k0 expr0
+    (k2, stmts2, funcs2) = stmtLift k1 stmts0
+stmtLift k0 (StmtSetPtr var expr0 : stmts0) =
+  (k2, StmtSetPtr var expr1 : stmts2, funcs1 ++ funcs2)
+  where
+    (k1, expr1, funcs1) = exprLift k0 expr0
+    (k2, stmts2, funcs2) = stmtLift k1 stmts0
+stmtLift k0 (StmtEffect expr0 : stmts0) =
+  (k2, StmtEffect expr1 : stmts2, funcs1 ++ funcs2)
+  where
+    (k1, expr1, funcs1) = exprLift k0 expr0
+    (k2, stmts2, funcs2) = stmtLift k1 stmts0
+
+intoStmt :: String -> Func -> Stmt
+intoStmt label func = StmtDecl label (ExprFunc func)
+
 main :: IO ()
 main =
   ( putStrLn
       . unlines
       . map show
+      . (\(_, stmts, funcs) -> map (uncurry intoStmt) funcs ++ stmts)
+      . stmtLift 0
       . snd
       . transform (Scope intrinsics S.empty)
+      . (\stmts -> [StmtBind "_main_" $ ExprFunc $ Func [] stmts $ ExprInt 0])
       . fst
       . head
       . readP_to_S parse
