@@ -3,6 +3,7 @@
 import Control.Monad (void)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
 import Data.List (foldl', foldl1')
+import qualified Data.Map as M
 import qualified Data.Set as S
 import Text.ParserCombinators.ReadP
   ( ReadP,
@@ -39,6 +40,11 @@ data Scope = Scope
   { scopeBindings :: S.Set String,
     scopeClosures :: S.Set String
   }
+
+data Type
+  = TypeAtom
+  | TypeFunc Int Type
+  | TypeClosure Int Int Type
 
 showExpr :: Int -> Expr -> String
 showExpr _ (ExprInt int) = show int
@@ -179,29 +185,6 @@ parse = many1 stmt <* token eof
 
     stmt :: ReadP Stmt
     stmt = bind <++ (StmtEffect <$> expr)
-
---  _f0_ a b {
---      decl c (deref b)
---      setptr b (+ (deref a) c)
---      setptr a c
---      c
---  }
---
---  fib {
---      decl a (alloc 0)
---      decl b (alloc 1)
---      (alloc _f0_ a b)
---  }
---
---  main {
---      decl f (fib)
---      (callclosure 2 f)
---      (callclosure 2 f)
---      (callclosure 2 f)
---      (callclosure 2 f)
---      (callclosure 2 f)
---      (printf "%ld\n" (callclosure 2 f))
---  }
 
 intrinsics :: S.Set String
 intrinsics = S.fromList ["printf", "+", "-", "*", "/", "%"]
@@ -356,11 +339,86 @@ stmtLift k0 (StmtEffect expr0 : stmts0) =
 intoStmt :: String -> Func -> Stmt
 intoStmt label func = StmtDecl label (ExprFunc func)
 
+exprType :: M.Map String Type -> Expr -> Type
+exprType _ (ExprInt _) = TypeAtom
+exprType _ (ExprVar _) = TypeAtom
+exprType _ (ExprStr _) = TypeAtom
+exprType _ (ExprFunc _) = undefined
+exprType types (ExprCall (ExprVar "alloc") (ExprVar var : args)) =
+  case M.lookup var types of
+    Just (TypeFunc arity returnType) ->
+      TypeClosure (length args) (arity - length args) returnType
+    _ -> undefined
+exprType _ (ExprCall _ _) = TypeAtom
+
+stmtType :: M.Map String Type -> Stmt -> M.Map String Type
+stmtType _ (StmtBind _ _) = undefined
+stmtType types (StmtDecl label (ExprFunc (Func args _ expr))) =
+  M.insert label (TypeFunc (length args) $ exprType types expr) types
+stmtType types (StmtDecl label (ExprVar var)) =
+  M.insert label ((M.!) types var) types
+stmtType _ (StmtDecl _ _) = undefined
+stmtType _ (StmtSetPtr _ _) = undefined
+stmtType _ (StmtEffect _) = undefined
+
+exprSwap :: M.Map String Type -> Expr -> (Expr, Maybe Type)
+exprSwap _ expr@(ExprInt _) = (expr, Nothing)
+exprSwap types expr@(ExprVar var) = (expr, M.lookup var types)
+exprSwap _ expr@(ExprStr _) = (expr, Nothing)
+exprSwap types0 (ExprFunc (Func args stmts0 expr)) =
+  (ExprFunc $ Func args stmts2 $ fst $ exprSwap types2 expr, Nothing)
+  where
+    (types2, stmts2) =
+      foldl'
+        ( \(types1, stmts1) stmt1 ->
+            (stmts1 ++) . (: []) <$> stmtSwap types1 stmt1
+        )
+        (types0, [])
+        stmts0
+exprSwap types (ExprCall call0@(ExprVar _) args0) =
+  case exprSwap types call0 of
+    (call1, Just (TypeClosure arity _ returnType)) ->
+      ( ExprCall (ExprVar "closure") $ ExprInt arity : call1 : args1,
+        Just returnType
+      )
+    (call1, Just (TypeFunc _ returnType)) ->
+      (ExprCall call1 args1, Just returnType)
+    (call1, _) -> (ExprCall call1 args1, Nothing)
+  where
+    args1 = map (fst . exprSwap types) args0
+exprSwap types expr@(ExprCall call0 args0) =
+  case exprSwap types call0 of
+    (call1, Just (TypeClosure arity _ returnType)) ->
+      ( ExprCall (ExprVar "closure") $ ExprInt arity : call1 : args1,
+        Just returnType
+      )
+    (call1, Just (TypeFunc _ returnType)) ->
+      (ExprCall call1 args1, Just returnType)
+    (_, _) -> (expr, Nothing)
+  where
+    args1 = map (fst . exprSwap types) args0
+
+stmtSwap :: M.Map String Type -> Stmt -> (M.Map String Type, Stmt)
+stmtSwap _ (StmtBind _ _) = undefined
+stmtSwap types (StmtDecl var expr0) =
+  case exprSwap types expr0 of
+    (expr1, Just returnType) ->
+      (M.insert var returnType types, StmtDecl var expr1)
+    (expr1, Nothing) -> (types, StmtDecl var expr1)
+stmtSwap types (StmtSetPtr var expr0) =
+  case exprSwap types expr0 of
+    (expr1, Just returnType) ->
+      (M.insert var returnType types, StmtSetPtr var expr1)
+    (expr1, Nothing) -> (types, StmtSetPtr var expr1)
+stmtSwap types (StmtEffect expr) =
+  (types, StmtEffect $ fst $ exprSwap types expr)
+
 main :: IO ()
 main =
   ( putStrLn
       . unlines
-      . map show
+      . map (show . snd)
+      . (\stmts -> map (stmtSwap $ foldl' stmtType M.empty stmts) stmts)
       . (\(_, stmts, funcs) -> map (uncurry intoStmt) funcs ++ stmts)
       . stmtLift 0
       . snd
