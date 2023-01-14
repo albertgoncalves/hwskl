@@ -223,7 +223,7 @@ exprEscaped (ExprInt _) = []
 exprEscaped (ExprVar _) = []
 exprEscaped (ExprStr _) = []
 exprEscaped (ExprFunc _) = []
-exprEscaped (ExprCall (ExprVar "alloc") (ExprFunc _ : args)) =
+exprEscaped (ExprCall (ExprVar "alloc-closure") (ExprFunc _ : args)) =
   map
     ( \case
         ExprVar var -> var
@@ -253,7 +253,7 @@ exprClosure _ (ExprFunc (Func args stmts0 expr0)) =
   case S.toList $ S.difference closures2 bindings of
     [] -> ExprFunc $ Func args stmts2 expr1
     fromAbove ->
-      ExprCall (ExprVar "alloc") $
+      ExprCall (ExprVar "alloc-closure") $
         ExprFunc (Func (args ++ fromAbove) stmts2 expr1)
           : map ExprVar fromAbove
   where
@@ -344,7 +344,7 @@ exprType _ (ExprInt _) = TypeAtom
 exprType _ (ExprVar _) = TypeAtom
 exprType _ (ExprStr _) = TypeAtom
 exprType _ (ExprFunc _) = undefined
-exprType types (ExprCall (ExprVar "alloc") (ExprVar var : args)) =
+exprType types (ExprCall (ExprVar "alloc-closure") (ExprVar var : args)) =
   case M.lookup var types of
     Just (TypeFunc arity returnType) ->
       TypeClosure (length args) (arity - length args) returnType
@@ -378,7 +378,7 @@ exprSwap types0 (ExprFunc (Func args stmts0 expr)) =
 exprSwap types (ExprCall call0@(ExprVar _) args0) =
   case exprSwap types call0 of
     (call1, Just (TypeClosure arity _ returnType)) ->
-      ( ExprCall (ExprVar "closure") $ ExprInt arity : call1 : args1,
+      ( ExprCall (ExprVar "call-closure") $ ExprInt arity : call1 : args1,
         Just returnType
       )
     (call1, Just (TypeFunc _ returnType)) ->
@@ -389,7 +389,7 @@ exprSwap types (ExprCall call0@(ExprVar _) args0) =
 exprSwap types expr@(ExprCall call0 args0) =
   case exprSwap types call0 of
     (call1, Just (TypeClosure arity _ returnType)) ->
-      ( ExprCall (ExprVar "closure") $ ExprInt arity : call1 : args1,
+      ( ExprCall (ExprVar "call-closure") $ ExprInt arity : call1 : args1,
         Just returnType
       )
     (call1, Just (TypeFunc _ returnType)) ->
