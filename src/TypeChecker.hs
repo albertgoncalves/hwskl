@@ -272,15 +272,37 @@ combineExprs bindings [] [] = bindings
 combineExprs bindings (expr0 : exprs0) (type0 : types0) =
   combineExprs (combineExpr bindings expr0 type0) exprs0 types0
 
-reduce :: M.Map String Type -> Type -> Type
-reduce _ TypeInt = TypeInt
-reduce _ TypeStr = TypeStr
-reduce bindings type0@(TypeVar var) =
-  case M.lookup var bindings of
-    Just type1 -> reduce (M.delete var bindings) type1
-    Nothing -> type0
-reduce bindings (TypeFunc argTypes returnType) =
-  TypeFunc (map (reduce bindings) argTypes) $ reduce bindings returnType
+shrinkVar :: M.Map String Type -> String -> (M.Map String Type, Type)
+shrinkVar bindings0 var0 =
+  case M.lookup var0 bindings0 of
+    Just (TypeVar var1) ->
+      let (bindings1, varType) = shrinkVar (M.delete var0 bindings0) var1
+       in (M.insert var0 varType bindings1, varType)
+    Just (TypeFunc argTypes0 returnType0) ->
+      let (bindings1, argTypes1) =
+            shrinkTypes (M.delete var0 bindings0) argTypes0
+          (bindings2, returnType2) = shrinkType bindings1 returnType0
+          funcType = TypeFunc argTypes1 returnType2
+       in (M.insert var0 funcType bindings2, funcType)
+    Just varType -> (bindings0, varType)
+    _ -> undefined
+
+shrinkType :: M.Map String Type -> Type -> (M.Map String Type, Type)
+shrinkType bindings TypeInt = (bindings, TypeInt)
+shrinkType bindings TypeStr = (bindings, TypeStr)
+shrinkType bindings (TypeVar var) = shrinkVar bindings var
+shrinkType bindings0 (TypeFunc argTypes0 returnType0) =
+  (bindings2, TypeFunc argTypes1 returnType2)
+  where
+    (bindings1, argTypes1) = shrinkTypes bindings0 argTypes0
+    (bindings2, returnType2) = shrinkType bindings1 returnType0
+
+shrinkTypes :: M.Map String Type -> [Type] -> (M.Map String Type, [Type])
+shrinkTypes bindings [] = (bindings, [])
+shrinkTypes bindings0 (type0 : types0) = (bindings2, type1 : types2)
+  where
+    (bindings1, type1) = shrinkType bindings0 type0
+    (bindings2, types2) = shrinkTypes bindings1 types0
 
 main :: IO ()
 main =
@@ -288,18 +310,9 @@ main =
       . unlines
       . map show
       . M.toList
-      . ( \bindings ->
-            M.fromList
-              $ map
-                ( \(var, type0) ->
-                    (var, reduce (M.delete var bindings) type0)
-                )
-              $ M.toList bindings
-        )
-      . ( \pairs ->
-            let (exprs, types) = unzip pairs
-             in combineExprs M.empty exprs types
-        )
+      . (\bindings -> foldl' ((fst .) . shrinkVar) bindings $ M.keys bindings)
+      . uncurry (combineExprs M.empty)
+      . unzip
       . sortOn fst
       . snd
       . stmtCollects 0
