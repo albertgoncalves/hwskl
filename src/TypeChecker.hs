@@ -2,7 +2,6 @@ import Control.Monad (void)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
 import Data.List (foldl', sortOn)
 import qualified Data.Map as M
-import qualified Data.Set as S
 import Text.ParserCombinators.ReadP
   ( ReadP,
     char,
@@ -222,23 +221,93 @@ stmtCollects = foldl' f . (,[])
     f :: (Int, [(Expr, Type)]) -> Stmt -> (Int, [(Expr, Type)])
     f (k, infers) stmt = (infers ++) <$> stmtCollect k stmt
 
+combineType :: M.Map String Type -> Type -> Type -> M.Map String Type
+combineType bindings type0 type1
+  | type0 == type1 = bindings
+combineType bindings (TypeVar var) type0 =
+  case M.lookup var bindings of
+    Just type1 -> combineType bindings type0 type1
+    Nothing -> M.insert var type0 bindings
+combineType bindings type0 (TypeVar var) =
+  case M.lookup var bindings of
+    Just type1 -> combineType bindings type0 type1
+    Nothing -> M.insert var type0 bindings
+combineType bindings (TypeFunc args0 return0) (TypeFunc args1 return1) =
+  combineType (combineTypes bindings args0 args1) return0 return1
+combineType _ _ _ = undefined
+
+combineTypes :: M.Map String Type -> [Type] -> [Type] -> M.Map String Type
+combineTypes _ [] (_ : _) = undefined
+combineTypes _ (_ : _) [] = undefined
+combineTypes bindings [] [] = bindings
+combineTypes bindings (type0 : types0) (type1 : types1) =
+  combineTypes (combineType bindings type0 type1) types0 types1
+
+intoType :: M.Map String Type -> Expr -> (M.Map String Type, Type)
+intoType _ (ExprInt _) = undefined
+intoType _ (ExprStr _) = undefined
+intoType bindings (ExprVar var) =
+  case M.lookup var bindings of
+    Just varType -> (bindings, varType)
+    Nothing -> (bindings, TypeVar var)
+intoType _ (ExprFunc {}) = undefined
+intoType bindings0 (ExprCall call args) =
+  case callType of
+    TypeFunc argTypes returnType ->
+      let bindings2 = combineExprs bindings1 args argTypes
+       in (bindings2, returnType)
+    _ -> undefined
+  where
+    (bindings1, callType) = intoType bindings0 call
+
+combineExpr :: M.Map String Type -> Expr -> Type -> M.Map String Type
+combineExpr bindings0 expr = combineType bindings1 exprType
+  where
+    (bindings1, exprType) = intoType bindings0 expr
+
+combineExprs :: M.Map String Type -> [Expr] -> [Type] -> M.Map String Type
+combineExprs _ [] (_ : _) = undefined
+combineExprs _ (_ : _) [] = undefined
+combineExprs bindings [] [] = bindings
+combineExprs bindings (expr0 : exprs0) (type0 : types0) =
+  combineExprs (combineExpr bindings expr0 type0) exprs0 types0
+
+reduce :: M.Map String Type -> Type -> Type
+reduce _ TypeInt = TypeInt
+reduce _ TypeStr = TypeStr
+reduce bindings type0@(TypeVar var) =
+  case M.lookup var bindings of
+    Just type1 -> reduce (M.delete var bindings) type1
+    Nothing -> type0
+reduce bindings (TypeFunc argTypes returnType) =
+  TypeFunc (map (reduce bindings) argTypes) $ reduce bindings returnType
+
 main :: IO ()
 main =
   ( putStrLn
       . unlines
       . map show
-      . sortOn (length . snd)
       . M.toList
-      . M.map S.toList
-      . M.fromListWith S.union
-      . map (S.singleton <$>)
+      . ( \bindings ->
+            M.fromList
+              $ map
+                ( \(var, type0) ->
+                    (var, reduce (M.delete var bindings) type0)
+                )
+              $ M.toList bindings
+        )
+      . ( \pairs ->
+            let (exprs, types) = unzip pairs
+             in combineExprs M.empty exprs types
+        )
+      . sortOn fst
       . snd
       . stmtCollects 0
       . fst
       . head
       . readP_to_S parse
   )
-    "  a = d\
-    \  b = 1\
+    "  a = 0\
+    \  b = \"a\"\
     \  c = (+ a b)\
-    \  d = ((f) (+ c 2) b)"
+    \  a = ((f1 c) (+ (f0 a) (+ 2 b)) a)"
