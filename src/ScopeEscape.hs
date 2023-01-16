@@ -48,12 +48,11 @@ data Type
 
 showExpr :: Int -> Expr -> String
 showExpr _ (ExprInt int) = show int
-showExpr _ (ExprStr str) = show str
 showExpr _ (ExprVar var) = var
+showExpr _ (ExprStr str) = show str
 showExpr n (ExprFunc func) = showFunc n func
-showExpr n (ExprCall call []) = printf "(%s)" $ showExpr n call
 showExpr n (ExprCall call args) =
-  printf "(%s %s)" (showExpr n call) $ unwords $ map (showExpr n) args
+  printf "(%s)" $ unwords $ showExpr n call : map (showExpr n) args
 
 indent :: Int -> String
 indent n = replicate (n * 4) ' '
@@ -71,10 +70,10 @@ showScope n0 body returnExpr =
     n1 = n0 + 1
 
 showStmt :: Int -> Stmt -> String
-showStmt n (StmtEffect effectExpr) = showExpr n effectExpr
 showStmt n (StmtBind var expr) = printf "%s = %s" var $ showExpr n expr
 showStmt n (StmtDecl var expr) = printf "decl %s %s" var $ showExpr n expr
 showStmt n (StmtSetPtr var expr) = printf "setptr %s %s" var $ showExpr n expr
+showStmt n (StmtEffect effectExpr) = showExpr n effectExpr
 
 showFunc :: Int -> Func -> String
 showFunc n (Func args stmts expr) =
@@ -428,23 +427,23 @@ main =
       . head
       . readP_to_S parse
   )
-    "fib = \\ {\
-    \    a = 0\
-    \    b = 1\
-    \    \\ {\
-    \        \\ {\
-    \            c = b\
-    \            b = (+ a c)\
-    \            a = c\
-    \            c\
-    \        }\
-    \    }\
-    \}\
-    \\
-    \f = (fib)\
-    \((f))\
-    \((f))\
-    \((f))\
-    \((f))\
-    \((f))\
-    \(printf \"%ld\n\" ((f)))"
+    "  fib = \\ {\
+    \      a = 0\
+    \      b = 1\
+    \      \\ {\
+    \          \\ {\
+    \              c = b\
+    \              b = (+ a c)\
+    \              a = c\
+    \              c\
+    \          }\
+    \      }\
+    \  }\
+    \  \
+    \  f = (fib)\
+    \  ((f))\
+    \  ((f))\
+    \  ((f))\
+    \  ((f))\
+    \  ((f))\
+    \  (printf \"%ld\n\" ((f)))"
