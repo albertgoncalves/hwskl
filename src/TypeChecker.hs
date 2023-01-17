@@ -226,11 +226,13 @@ combineType bindings type0 type1
   | type0 == type1 = bindings
 combineType bindings (TypeVar var) type0 =
   case M.lookup var bindings of
-    Just type1 -> combineType bindings type0 type1
+    Just type1 ->
+      M.insert var type1 $ combineType (M.delete var bindings) type0 type1
     Nothing -> M.insert var type0 bindings
 combineType bindings type0 (TypeVar var) =
   case M.lookup var bindings of
-    Just type1 -> combineType bindings type0 type1
+    Just type1 ->
+      M.insert var type1 $ combineType (M.delete var bindings) type0 type1
     Nothing -> M.insert var type0 bindings
 combineType bindings (TypeFunc args0 return0) (TypeFunc args1 return1) =
   combineType (combineTypes bindings args0 args1) return0 return1
