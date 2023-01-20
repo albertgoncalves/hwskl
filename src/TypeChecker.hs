@@ -198,7 +198,24 @@ intoType k bindings0 (ExprVar var0) =
   case deref bindings0 var0 of
     (bindings1, Just varType) -> (k, bindings1, varType)
     (bindings1, Nothing) -> (k, bindings1, TypeVar var0)
-intoType _ _ (ExprFunc {}) = undefined
+intoType _ bindings (ExprFunc args _ _)
+  | any (`M.member` bindings) args = undefined
+intoType k0 bindings0 (ExprFunc args stmts expr) =
+  ( k3,
+    M.union (M.intersection bindings5 bindings0) bindings0,
+    TypeFunc argTypes returnType1
+  )
+  where
+    k1 = k0 + length args
+    bindings1 =
+      M.union bindings0 $
+        M.fromList $
+          zip args $
+            map (TypeVar . printf "_%d_") [k0 ..]
+    (k2, bindings2) = stmtChecks k1 bindings1 stmts
+    (k3, bindings3, returnType0) = intoType k2 bindings2 expr
+    (bindings4, argTypes) = shrinkVars bindings3 args
+    (bindings5, returnType1) = shrinkType bindings4 returnType0
 intoType k0 bindings0 (ExprCall call args) =
   case callType of
     TypeFunc argTypes returnType ->
@@ -292,6 +309,12 @@ shrinkVar bindings0 var0 =
     (bindings1, Just varType) -> (bindings1, varType)
     (bindings1, Nothing) -> (bindings1, TypeVar var0)
 
+shrinkVars :: M.Map String Type -> [String] -> (M.Map String Type, [Type])
+shrinkVars =
+  foldr
+    (\var (bindings0, types0) -> (: types0) <$> shrinkVar bindings0 var)
+    . (,[])
+
 shrinkType :: M.Map String Type -> Type -> (M.Map String Type, Type)
 shrinkType bindings TypeInt = (bindings, TypeInt)
 shrinkType bindings TypeStr = (bindings, TypeStr)
@@ -322,5 +345,5 @@ main =
   )
     "  a = 0\
     \  b = \"a\"\
-    \  c = (+ a b)\
+    \  c = (\\a0 b0 { (+ a0 b0) } a b)\
     \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)"
