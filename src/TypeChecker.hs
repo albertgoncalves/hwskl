@@ -336,18 +336,40 @@ shrinkBindings bindings =
 
 main :: IO ()
 main =
-  ( putStrLn
-      . unlines
-      . map show
-      . M.toList
-      . shrinkBindings
-      . snd
-      . stmtChecks 0 M.empty
-      . fst
-      . head
-      . readP_to_S parse
-  )
-    "  a = 0\
-    \  b = \"a\"\
-    \  c = (\\a0 b0 { (+ a0 b0) } a b)\
-    \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)"
+  mapM_
+    ( putStrLn
+        . unlines
+        . map show
+        . M.toList
+        . shrinkBindings
+        . snd
+        . stmtChecks 0 M.empty
+        . fst
+        . head
+        . readP_to_S parse
+    )
+    [ "  fib = \\ {\
+      \      a = 0\
+      \      b = 1\
+      \      \\ {\
+      \          \\ {\
+      \              c = b\
+      \              b = (+ a c)\
+      \              a = c\
+      \              c\
+      \          }\
+      \      }\
+      \  }\
+      \  \
+      \  f = (fib)\
+      \  ((f))\
+      \  ((f))\
+      \  ((f))\
+      \  ((f))\
+      \  ((f))\
+      \  (printf \"%ld\n\" ((f)))",
+      "  a = 0\
+      \  b = \"a\"\
+      \  c = (\\a0 b0 { (+ a0 b0) } a b)\
+      \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)"
+    ]
