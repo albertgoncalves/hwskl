@@ -202,7 +202,7 @@ intoType _ bindings (ExprFunc args _ _)
   | any (`M.member` bindings) args = undefined
 intoType k0 bindings0 (ExprFunc args stmts expr) =
   ( k3,
-    M.union (M.intersection bindings5 bindings0) bindings0,
+    M.union (M.intersection (shrinkBindings bindings5) bindings0) bindings0,
     TypeFunc argTypes returnType1
   )
   where
@@ -330,13 +330,17 @@ shrinkTypes =
     (\type0 (bindings0, types0) -> (: types0) <$> shrinkType bindings0 type0)
     . (,[])
 
+shrinkBindings :: M.Map String Type -> M.Map String Type
+shrinkBindings bindings =
+  foldl' ((fst .) . shrinkVar) bindings $ M.keys bindings
+
 main :: IO ()
 main =
   ( putStrLn
       . unlines
       . map show
       . M.toList
-      . (\bindings -> foldl' ((fst .) . shrinkVar) bindings $ M.keys bindings)
+      . shrinkBindings
       . snd
       . stmtChecks 0 M.empty
       . fst
