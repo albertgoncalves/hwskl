@@ -190,13 +190,16 @@ deref bindings0 var0 =
         (bindings1, Nothing) -> (M.insert var0 type0 bindings1, Nothing)
     maybeType -> (bindings0, maybeType)
 
+varLabel :: Int -> String
+varLabel = printf "_%d_"
+
 intoType :: Int -> M.Map String Type -> Expr -> (Int, M.Map String Type, Type)
 intoType k bindings (ExprInt _) = (k, bindings, TypeInt)
 intoType k bindings (ExprStr _) = (k, bindings, TypeStr)
-intoType k bindings0 (ExprVar var0) =
-  case deref bindings0 var0 of
+intoType k bindings0 (ExprVar var) =
+  case deref bindings0 var of
     (bindings1, Just varType) -> (k, bindings1, varType)
-    (bindings1, Nothing) -> (k, bindings1, TypeVar var0)
+    (bindings1, Nothing) -> (k, bindings1, TypeVar var)
 intoType _ bindings (ExprFunc args _ _)
   | any (`M.member` bindings) args = undefined
 intoType k0 bindings0 (ExprFunc args stmts expr) =
@@ -210,7 +213,7 @@ intoType k0 bindings0 (ExprFunc args stmts expr) =
       M.union bindings0 $
         M.fromList $
           zip args $
-            map (TypeVar . printf "_%d_") [k0 ..]
+            map (TypeVar . varLabel) [k0 ..]
     (k2, bindings2) = stmtChecks k1 bindings1 stmts
     (k3, bindings3, returnType0) = intoType k2 bindings2 expr
     (bindings4, argTypes) = shrinkVars bindings3 args
@@ -222,7 +225,7 @@ intoType k0 bindings0 (ExprCall call args) =
        in (k2, bindings2, returnType)
     TypeVar _ ->
       let (k2, bindings2, argTypes) = intoTypes k1 bindings1 args
-          returnType = TypeVar $ printf "_%d_" k2
+          returnType = TypeVar $ varLabel k2
           (k3, bindings3) =
             typeCombine (succ k2) bindings2 callType $
               TypeFunc argTypes returnType
