@@ -1,7 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
+
 import Control.Monad (void)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
 import Data.List (foldl')
 import qualified Data.Map as M
+import Data.Maybe (mapMaybe)
 import Text.ParserCombinators.ReadP
   ( ReadP,
     char,
@@ -199,12 +202,14 @@ intoType k bindings (ExprStr _) = (k, bindings, TypeStr)
 intoType k bindings0 (ExprVar var) =
   case deref bindings0 var of
     (bindings1, Just varType) -> (k, bindings1, varType)
-    (bindings1, Nothing) -> (k, bindings1, TypeVar var)
+    (bindings1, Nothing) ->
+      let varType = TypeVar $ varLabel k
+       in (succ k, M.insert var varType bindings1, varType)
 intoType _ bindings (ExprFunc args _ _)
   | any (`M.member` bindings) args = undefined
 intoType k0 bindings0 (ExprFunc args stmts expr) =
   ( k3,
-    M.union (M.intersection (shrinkBindings bindings5) bindings0) bindings0,
+    foldr M.delete (shrinkBindings bindings5) vars,
     TypeFunc argTypes returnType1
   )
   where
@@ -218,6 +223,13 @@ intoType k0 bindings0 (ExprFunc args stmts expr) =
     (k3, bindings3, returnType0) = intoType k2 bindings2 expr
     (bindings4, argTypes) = shrinkVars bindings3 args
     (bindings5, returnType1) = shrinkType bindings4 returnType0
+    vars =
+      mapMaybe
+        ( \case
+            StmtBind var _ -> Just var
+            _ -> Nothing
+        )
+        stmts
 intoType k0 bindings0 (ExprCall call args) =
   case callType of
     TypeFunc argTypes returnType ->
@@ -374,6 +386,7 @@ main =
       \  b = \"a\"\
       \  c = (\\a0 b0 { (+ a0 b0) } a b)\
       \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)",
-      "  c = (f a b)\
+      "  f = \\x y { (+ x y) }\
+      \  c = (f a b)\
       \  e = (f c d)"
     ]
