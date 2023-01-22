@@ -115,8 +115,7 @@ parse = many1 stmt <* token eof
           space
         ('#' : _) -> do
           _ <- get
-          _ <- munch (/= '\n') *> char '\n'
-          space
+          munch (/= '\n') *> ((char '\n' *> space) <++ eof)
         (c : _) | isSpace c -> do
           _ <- get
           space
