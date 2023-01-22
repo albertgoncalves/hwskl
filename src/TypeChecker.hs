@@ -187,7 +187,7 @@ deref bindings0 var0 =
     Just type0@(TypeVar var1) ->
       case deref (M.delete var0 bindings0) var1 of
         (bindings1, Just type1) -> (M.insert var0 type1 bindings1, Just type1)
-        (bindings1, Nothing) -> (M.insert var0 type0 bindings1, Nothing)
+        (bindings1, Nothing) -> (M.insert var0 type0 bindings1, Just type0)
     maybeType -> (bindings0, maybeType)
 
 varLabel :: Int -> String
@@ -373,5 +373,7 @@ main =
       "  a = 0\
       \  b = \"a\"\
       \  c = (\\a0 b0 { (+ a0 b0) } a b)\
-      \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)"
+      \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)",
+      "  c = (f a b)\
+      \  e = (f c d)"
     ]
