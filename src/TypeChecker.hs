@@ -80,8 +80,8 @@ instance Show Expr where
 
 instance Show Type where
   show TypeInt = "Int"
-  show (TypeVar var) = var
   show TypeStr = "Str"
+  show (TypeVar var) = var
   show (TypeFunc args returnType) =
     printf "(\\%s -> %s)" (unwords $ map show args) $ show returnType
 
