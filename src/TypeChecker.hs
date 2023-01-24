@@ -41,7 +41,8 @@ data Type
 data Compiler = Compiler
   { compilerK :: Int,
     compilerBindings :: M.Map String Type,
-    compilerScopes :: [[String]]
+    compilerScopes :: [[String]],
+    compilerCallVars :: M.Map String String
   }
 
 showExpr :: Int -> Expr -> String
@@ -220,6 +221,28 @@ popScope =
     \c ->
       (head $ compilerScopes c, c {compilerScopes = tail $ compilerScopes c})
 
+getCallVars :: State Compiler (M.Map String String)
+getCallVars = state $ \c -> (compilerCallVars c, c)
+
+setCallVars ::
+  (M.Map String String -> M.Map String String) -> State Compiler ()
+setCallVars f = modify $ \c -> c {compilerCallVars = f $ compilerCallVars c}
+
+intoCallVar :: Type -> State Compiler Type
+intoCallVar (TypeVar var0) = do
+  callVars <- getCallVars
+  case M.lookup var0 callVars of
+    Nothing -> do
+      var1 <- varLabel <$> nextK
+      setCallVars $ M.insert var0 var1
+      return $ TypeVar var1
+    Just var1 -> return $ TypeVar var1
+intoCallVar (TypeFunc argTypes0 returnType0) = do
+  argTypes1 <- mapM intoCallVar argTypes0
+  returnType1 <- intoCallVar returnType0
+  return $ TypeFunc argTypes1 returnType1
+intoCallVar otherType = return otherType
+
 varLabel :: Int -> String
 varLabel = printf "_%d_"
 
@@ -269,9 +292,12 @@ intoType (ExprFunc args stmts expr) = do
 intoType (ExprCall call args) = do
   callType <- intoType call
   case callType of
-    TypeFunc argTypes returnType -> do
-      exprCombines args argTypes
-      return returnType
+    TypeFunc argTypes0 returnType0 -> do
+      setCallVars $ const M.empty
+      argTypes1 <- mapM intoCallVar argTypes0
+      returnType1 <- intoCallVar returnType0
+      exprCombines args argTypes1
+      return returnType1
     TypeVar _ -> do
       argTypes <- mapM intoType args
       returnType <- TypeVar . varLabel <$> nextK
@@ -385,7 +411,7 @@ main =
         . compilerBindings
         . ( \stmts ->
               execState (stmtChecks stmts >> shrinkBindings) $
-                Compiler 0 M.empty [[]]
+                Compiler 0 M.empty [[]] M.empty
           )
         . fst
         . head
@@ -417,5 +443,9 @@ main =
       \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)",
       "  f = \\x y { (+ x y) }\
       \  c = (f a b)\
-      \  e = (f c d)"
+      \  e = (f c d)",
+      "  f = \\x { x }\n\
+      \  x = 0\n\
+      \  y = (f x)\n\
+      \  z = (f \"123\")"
     ]
