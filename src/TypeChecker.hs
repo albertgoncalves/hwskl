@@ -414,7 +414,11 @@ main =
         . compilerBindings
         . ( \stmts ->
               execState (stmtChecks stmts >> shrinkBindings) $
-                Compiler 0 M.empty [[]] M.empty
+                Compiler
+                  0
+                  (M.singleton "+" $ TypeFunc [TypeInt, TypeInt] TypeInt)
+                  [[]]
+                  M.empty
           )
         . fst
         . head
@@ -441,7 +445,7 @@ main =
       \  ((f))\
       \  (printf \"%ld\n\" ((f)))",
       "  a = 0\
-      \  b = \"a\"\
+      \  b = a\
       \  c = (\\a0 b0 { (+ a0 b0) } a b)\
       \  d = ((f1 c d) (+ (f0 a) (+ 2 b)) a)",
       "  f = \\x y { (+ x y) }\
@@ -450,5 +454,9 @@ main =
       "  f = \\x { x }\n\
       \  x = 0\n\
       \  y = (f x)\n\
-      \  z = (f \"123\")"
+      \  z = (f \"123\")",
+      "  zipWith = \\f a b {\
+      \      (list (f (head a) (head b)) (zipWith f (tail a) (tail b)))\
+      \  }\
+      \  (zipWith + xs ys)"
     ]
