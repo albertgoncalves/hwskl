@@ -238,10 +238,13 @@ intoCallVar (TypeVar var0) = do
       return $ TypeVar var1
     Just var1 -> return $ TypeVar var1
 intoCallVar (TypeFunc argTypes0 returnType0) = do
-  argTypes1 <- mapM intoCallVar argTypes0
+  argTypes1 <- intoCallVars argTypes0
   returnType1 <- intoCallVar returnType0
   return $ TypeFunc argTypes1 returnType1
 intoCallVar otherType = return otherType
+
+intoCallVars :: [Type] -> State Compiler [Type]
+intoCallVars = mapM intoCallVar
 
 varLabel :: Int -> String
 varLabel = printf "_%d_"
@@ -294,7 +297,7 @@ intoType (ExprCall call args) = do
   case callType of
     TypeFunc argTypes0 returnType0 -> do
       setCallVars $ const M.empty
-      argTypes1 <- mapM intoCallVar argTypes0
+      argTypes1 <- intoCallVars argTypes0
       returnType1 <- intoCallVar returnType0
       exprCombines args argTypes1
       return returnType1
