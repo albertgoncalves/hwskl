@@ -191,7 +191,7 @@ search root chord =
   map fst $
     filter snd $
       [ ( (pitch, scale),
-          (`contains` (map toInt $ makeChord root chord)) $
+          (`contains` (map ((`mod` 12) . toInt) $ makeChord root chord)) $
             map (`mod` 12) $
               toInts pitch scale
         )
@@ -201,4 +201,4 @@ search root chord =
       ]
 
 main :: IO ()
-main = putStrLn $ unlines $ map show $ search (Sharp F) dom7Sharp5
+main = putStrLn $ unlines $ map show $ search D dim7
