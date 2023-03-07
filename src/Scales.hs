@@ -15,6 +15,7 @@ data Scale
   | HarmonicMajor
   | HarmonicMinor
   | MelodicMinor
+  deriving (Show)
 
 instance Show Pitch where
   show A = "A"
@@ -182,5 +183,22 @@ min7Flat5 = flat5 min7
 dom7Sharp5 :: Chord
 dom7Sharp5 = sharp5 dom7
 
+contains :: Eq a => [a] -> [a] -> Bool
+contains xs = all (`elem` xs)
+
+search :: Pitch -> Chord -> [(Pitch, Scale)]
+search root chord =
+  map fst $
+    filter snd $
+      [ ( (pitch, scale),
+          (`contains` (map toInt $ makeChord root chord)) $
+            map (`mod` 12) $
+              toInts pitch scale
+        )
+        | pitch <-
+            [C, Sharp C, D, Sharp D, E, F, Sharp F, G, Sharp G, A, Sharp A, B],
+          scale <- [Major, HarmonicMajor, HarmonicMinor, MelodicMinor]
+      ]
+
 main :: IO ()
-main = print $ makeChord C dim7
+main = putStrLn $ unlines $ map show $ search (Sharp F) dom7Sharp5
