@@ -123,6 +123,20 @@ alter degree accidental chord = fmap loop $ check $ snd chord
       | degree == i = chord
       | otherwise = check fs
 
+interval :: Pitch -> Int -> Int -> Pitch
+interval pitch steps =
+  adjust
+    ( last $
+        take steps $
+          dropWhile (/= natural pitch) $
+            cycle $
+              toPitches Major
+    )
+    . (+ toInt pitch)
+
+enharmonic :: Pitch -> [Pitch]
+enharmonic pitch = [interval pitch 7 0, interval pitch 2 0]
+
 addDiatonic :: Int -> Chord -> Chord
 addDiatonic degree = add degree id
 
@@ -201,4 +215,4 @@ search root chord =
       ]
 
 main :: IO ()
-main = putStrLn $ unlines $ map show $ search D dim7
+main = putStrLn $ unlines $ map show $ search C dom7
