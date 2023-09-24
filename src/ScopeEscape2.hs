@@ -189,6 +189,8 @@ allocStmts (stmt@(StmtDecl ident value) : stmts) idents
   | otherwise = stmt : allocStmts stmts idents
 allocStmts (stmt : stmts) idents = stmt : allocStmts stmts idents
 
+-- NOTE: Capturing closures within other closures doesn't work correctly. This
+-- implementation needs a lot more work.
 main :: IO ()
 main = do
   putChar '\n'
