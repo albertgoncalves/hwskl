@@ -1,14 +1,13 @@
-import Control.Monad.State (State, evalState, gets, modify)
+import Control.Monad.State (State, get, gets, modify, runState)
+import Data.Bifunctor (first)
 import Data.List (intercalate)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import Text.Printf (printf)
 
 data Expr
-  = ExprAccess Expr Int
-  | ExprAlloc [Expr]
-  | ExprCall Expr [Expr]
+  = ExprCall Expr [Expr]
+  | ExprDeref Expr Int
   | ExprFunc Func
   | ExprIdent String
   | ExprInt Int
@@ -18,20 +17,13 @@ data Stmt
   | StmtSet Expr Expr
   | StmtVoid Expr
 
-data Func = Func [(String, Type)] [String] [Stmt] Expr
+data Func = Func [String] [String] [Stmt] Expr
 
 data Type
   = TypeFunc [Type] [Type] Type
   | TypeInt
-  | TypePointer [Type]
-  | TypeUnknown
-  deriving (Eq)
-
-data Scope = Scope
-  { scopeGlobals :: M.Map String Type,
-    scopeLocals :: M.Map String Type,
-    scopeOrphans :: S.Set String
-  }
+  | TypePointer Type
+  | TypeVoid
 
 instance Show Expr where
   show = showExpr 0
@@ -46,12 +38,10 @@ indent :: Int -> String
 indent = (`replicate` ' ')
 
 showExpr :: Int -> Expr -> String
-showExpr n (ExprAccess pointer offset) =
-  printf "%s[%d]" (showExpr n pointer) offset
-showExpr n (ExprAlloc exprs) =
-  printf "[%s]" $ intercalate ", " $ map (showExpr n) exprs
 showExpr n (ExprCall func args) =
   printf "%s(%s)" (showExpr n func) $ intercalate ", " $ map (showExpr n) args
+showExpr n (ExprDeref pointer offset) =
+  printf "%s[%d]" (showExpr n pointer) offset
 showExpr n (ExprFunc func) = showFunc n func
 showExpr _ (ExprIdent ident) = ident
 showExpr _ (ExprInt int) = show int
@@ -64,10 +54,11 @@ showStmt n (StmtSet target value) =
 showStmt n (StmtVoid expr) = showExpr n expr
 
 showFunc :: Int -> Func -> String
-showFunc n0 (Func args [] stmts returnExpr) =
+showFunc n0 (Func args captures stmts returnExpr) =
   printf
-    "\\(%s) {\n%s%s}"
-    (intercalate ", " $ map fst args)
+    "\\(%s) |%s| {\n%s%s}"
+    (intercalate ", " args)
+    (intercalate ", " captures)
     ( unlines $
         map (printf "%s%s" $ indent n1) $
           map (showStmt n1) stmts ++ [showExpr n1 returnExpr]
@@ -75,163 +66,155 @@ showFunc n0 (Func args [] stmts returnExpr) =
     (indent n0)
   where
     n1 = n0 + 4
-showFunc n (Func args captures stmts returnExpr) =
-  showExpr n $
-    ExprAlloc $
-      ExprFunc (Func args [] stmts returnExpr)
-        : map ExprIdent captures
 
-walkExpr :: Expr -> State Scope Expr
-walkExpr (ExprAccess pointer offset) =
-  (`ExprAccess` offset) <$> walkExpr pointer
-walkExpr (ExprAlloc exprs) = ExprAlloc <$> mapM walkExpr exprs
-walkExpr (ExprCall func0 args0) = do
-  globals <- gets scopeGlobals
-  locals <- gets scopeLocals
-  func1 <- walkExpr func0
-  args1 <- mapM walkExpr args0
-  return $ case typeExpr globals locals func1 of
-    TypeFunc _ captures _
-      | not $ null captures ->
-          ExprCall (ExprAccess func1 0) $
-            args1 ++ map (ExprAccess func1) [1 .. length captures]
-    _ -> ExprCall func1 args1
-walkExpr (ExprFunc func) = ExprFunc <$> walkFunc func
-walkExpr expr@(ExprIdent ident) = do
-  globals <- gets scopeGlobals
-  locals <- gets scopeLocals
-  if S.member ident $
-    S.union
-      (S.fromList $ M.keys globals)
-      (S.fromList $ M.keys locals)
-    then return expr
-    else do
-      modify $ \scope ->
-        scope {scopeOrphans = S.insert ident $ scopeOrphans scope}
-      return $ ExprAccess expr 0
-walkExpr expr@(ExprInt _) = return expr
+liftExpr :: Expr -> State [(String, Func)] Expr
+liftExpr (ExprCall func args) =
+  ExprCall <$> liftExpr func <*> mapM liftExpr args
+liftExpr (ExprDeref pointer offset) = (`ExprDeref` offset) <$> liftExpr pointer
+liftExpr (ExprFunc func0) = do
+  func1 <- liftFunc func0
+  ident <- gets $ printf "__fn_%d__" . length
+  modify ((ident, func1) :)
+  return $ ExprIdent ident
+liftExpr expr = return expr
 
-walkStmt :: Stmt -> State Scope Stmt
-walkStmt (StmtDecl ident value0) = do
-  value1 <- walkExpr value0
-  locals <- gets scopeLocals
-  if M.member ident locals
-    then undefined
-    else do
-      modify $
-        \scope ->
-          scope
-            { scopeLocals =
-                M.insert
-                  ident
-                  (typeExpr (scopeGlobals scope) (scopeLocals scope) value1)
-                  (scopeLocals scope)
-            }
-      return $ StmtDecl ident value1
-walkStmt (StmtSet target value) =
-  StmtSet <$> walkExpr target <*> walkExpr value
-walkStmt (StmtVoid expr) = StmtVoid <$> walkExpr expr
+liftStmt :: Stmt -> State [(String, Func)] Stmt
+liftStmt (StmtDecl ident value) = StmtDecl ident <$> liftExpr value
+liftStmt (StmtSet target value) =
+  StmtSet <$> liftExpr target <*> liftExpr value
+liftStmt (StmtVoid expr) = StmtVoid <$> liftExpr expr
 
-walkFunc :: Func -> State Scope Func
-walkFunc (Func args [] stmts0 returnExpr0) = do
-  locals0 <- gets scopeLocals
-  orphans0 <- gets scopeOrphans
-  modify $
-    \scope -> scope {scopeLocals = M.fromList args, scopeOrphans = S.empty}
-  stmts1 <- mapM walkStmt stmts0
-  returnExpr1 <- walkExpr returnExpr0
-  locals1 <- gets $ S.fromList . M.keys . scopeLocals
-  stmts2 <-
-    gets $
-      allocStmts stmts1
-        . (\scope -> S.intersection (scopeOrphans scope) locals1)
-  orphans2 <- gets $ \scope -> S.difference (scopeOrphans scope) locals1
-  modify $
-    \scope ->
-      scope
-        { scopeLocals = locals0,
-          scopeOrphans = S.union orphans0 orphans2
-        }
-  return $ Func args (S.toList orphans2) stmts2 returnExpr1
-walkFunc _ = undefined
+liftFunc :: Func -> State [(String, Func)] Func
+liftFunc (Func args captures stmts returnExpr) =
+  Func args captures <$> mapM liftStmt stmts <*> liftExpr returnExpr
 
-typeExpr :: M.Map String Type -> M.Map String Type -> Expr -> Type
-typeExpr globals locals (ExprAccess pointer offset) =
-  case typeExpr globals locals pointer of
-    TypePointer types -> types !! offset
-    _ -> undefined
-typeExpr globals locals (ExprAlloc exprs) =
-  TypePointer $ map (typeExpr globals locals) exprs
-typeExpr globals locals (ExprCall func args) =
-  case typeExpr globals locals func of
-    TypeFunc argTypes _ returnType
-      | map (typeExpr globals locals) args == argTypes -> returnType
-    _ -> undefined
-typeExpr globals locals (ExprFunc (Func args captures _ returnExpr)) =
-  TypeFunc
-    (map snd args)
-    (map (typeExpr globals locals . ExprIdent) captures)
-    (typeExpr globals locals returnExpr)
-typeExpr globals locals (ExprIdent ident) =
-  case M.lookup ident locals of
-    Just type0 -> type0
-    Nothing -> fromMaybe undefined (M.lookup ident globals)
-typeExpr _ _ (ExprInt _) = TypeInt
+findOrphansExpr :: M.Map String Func -> S.Set String -> Expr -> S.Set String
+findOrphansExpr globals locals (ExprCall func args) =
+  S.unions $ map (findOrphansExpr globals locals) $ func : args
+findOrphansExpr globals locals (ExprDeref pointer _) =
+  findOrphansExpr globals locals pointer
+findOrphansExpr _ _ (ExprFunc _) = undefined
+findOrphansExpr globals locals (ExprIdent ident)
+  | S.member ident locals = S.empty
+  | otherwise =
+      case M.lookup ident globals of
+        Just (Func _ captures _ _) -> S.difference (S.fromList captures) locals
+        Nothing -> S.singleton ident
+findOrphansExpr _ _ _ = S.empty
 
-allocStmts :: [Stmt] -> S.Set String -> [Stmt]
-allocStmts [] _ = []
-allocStmts stmts idents
-  | S.null idents = stmts
-allocStmts (stmt@(StmtDecl ident value) : stmts) idents
-  | S.member ident idents =
-      StmtDecl ident (ExprAlloc [value])
-        : allocStmts stmts (S.delete ident idents)
-  | otherwise = stmt : allocStmts stmts idents
-allocStmts (stmt : stmts) idents = stmt : allocStmts stmts idents
+findOrphansStmt ::
+  M.Map String Func -> Stmt -> State (S.Set String) (S.Set String)
+findOrphansStmt globals (StmtDecl ident value) = do
+  locals <- get
+  modify $ S.insert ident
+  return $ findOrphansExpr globals locals value
+findOrphansStmt globals (StmtSet target value) =
+  gets $ \locals ->
+    S.unions $ map (findOrphansExpr globals locals) [target, value]
+findOrphansStmt globals (StmtVoid expr) =
+  gets $ \locals -> findOrphansExpr globals locals expr
 
--- NOTE: Capturing closures within other closures doesn't work correctly. This
--- implementation needs a lot more work.
+findOrphansFunc :: S.Set String -> M.Map String Func -> Func -> Func
+findOrphansFunc intrinsics globals (Func args [] stmts returnExpr) =
+  Func args captures stmts returnExpr
+  where
+    (orphans, locals) =
+      first S.unions $
+        runState (mapM (findOrphansStmt globals) stmts) $
+          S.union intrinsics $
+            S.fromList args
+    captures =
+      S.toList $ S.union orphans $ findOrphansExpr globals locals returnExpr
+findOrphansFunc _ _ _ = undefined
+
 main :: IO ()
 main = do
   putChar '\n'
   print fnMain
-  print $
-    evalState (walkFunc fnMain) $
-      Scope
-        ( M.fromList
-            [ ("print", TypeUnknown),
-              ("+", TypeFunc [TypeInt, TypeInt] [] TypeInt)
-            ]
+
+  putChar '\n'
+  mapM_ print $
+    M.toList $
+      foldr
+        ( \(ident, func1) globals ->
+            M.insert
+              ident
+              (findOrphansFunc (S.fromList $ M.keys intrinsics) globals func1)
+              globals
         )
         M.empty
-        S.empty
+        funcs1
   where
+    intrinsics =
+      M.fromList
+        [ ("+", TypeFunc [TypeInt, TypeInt] [] TypeInt),
+          ("print", TypeFunc [TypeInt] [] TypeVoid)
+        ]
+
+    funcs1 = ("main", func0) : funcs0
+    (func0, funcs0) = runState (liftFunc fnMain) []
+
+    -- fnMain =
+    --   Func [] [] [StmtDecl "x" $ ExprInt 0] $
+    --     ExprCall
+    --       ( ExprFunc $
+    --           Func [] [] [] $
+    --             ExprCall (ExprFunc $ Func [] [] [] $ ExprIdent "x") []
+    --       )
+    --       []
+
     fnMain =
       Func
         []
         []
-        [ StmtDecl "counter" $ ExprFunc fnCounter,
+        [ StmtDecl "k" $ ExprInt 0,
+          StmtDecl "counter" $ ExprFunc fnCounter,
           StmtDecl "c" $ ExprCall (ExprIdent "counter") [ExprInt 0],
           StmtVoid $ ExprCall (ExprIdent "c") [ExprInt 1],
           StmtVoid $
             ExprCall
-              (ExprIdent "print")
-              [ExprCall (ExprIdent "c") [ExprInt 1]]
+              ( ExprFunc $
+                  Func
+                    []
+                    []
+                    [ StmtVoid $
+                        ExprCall
+                          (ExprIdent "print")
+                          [ExprCall (ExprIdent "c") [ExprInt 1]]
+                    ]
+                    (ExprInt 0)
+              )
+              []
         ]
-        (ExprInt 0)
+        ( ExprCall
+            ( ExprFunc $
+                Func
+                  ["c"]
+                  []
+                  [ StmtVoid $
+                      ExprCall
+                        (ExprIdent "print")
+                        [ExprCall (ExprIdent "c") [ExprInt 1]]
+                  ]
+                  (ExprInt 0)
+            )
+            [ExprIdent "c"]
+        )
 
     fnIncr =
       Func
-        [("m", TypeInt)]
+        ["m"]
         []
         [ StmtSet (ExprIdent "x") $
+            ExprCall (ExprIdent "+") [ExprIdent "x", ExprIdent "k"],
+          StmtSet (ExprIdent "x") $
             ExprCall (ExprIdent "+") [ExprIdent "x", ExprIdent "m"]
         ]
         (ExprIdent "x")
 
     fnCounter =
       Func
-        [("n", TypeInt)]
+        ["n"]
         []
         [StmtDecl "x" $ ExprIdent "n"]
         (ExprFunc fnIncr)
