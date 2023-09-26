@@ -11,7 +11,7 @@ getCounter = do
   modifyIORef' counter succ
   return c
 
-f :: Show a => a -> IO String
+f :: (Show a) => a -> IO String
 f x = (show x ++) . show <$> getCounter
 
 loop :: IO a -> Int -> IO ()

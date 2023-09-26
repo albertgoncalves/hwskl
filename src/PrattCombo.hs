@@ -47,7 +47,7 @@ assertToken f = do
     Just token | f token -> return ()
     _ -> undefined
 
-unfold :: Monad m => m (Maybe a) -> m [a]
+unfold :: (Monad m) => m (Maybe a) -> m [a]
 unfold x = maybe (return []) ((<$> unfold x) . (:)) =<< x
 
 isInt :: String -> Bool

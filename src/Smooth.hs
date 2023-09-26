@@ -27,7 +27,7 @@ smoothIvan (x : xs) = replicate n (x' / fromIntegral n) ++ smoothIvan rest
   where
     (nulls, rest) = span null xs
     n = length nulls + 1
-    x' :: Fractional b => b
+    x' :: (Fractional b) => b
     x' = maybe 0 realToFrac x
 
 main :: IO ()

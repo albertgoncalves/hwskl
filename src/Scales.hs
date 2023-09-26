@@ -197,7 +197,7 @@ min7Flat5 = flat5 min7
 dom7Sharp5 :: Chord
 dom7Sharp5 = sharp5 dom7
 
-contains :: Eq a => [a] -> [a] -> Bool
+contains :: (Eq a) => [a] -> [a] -> Bool
 contains xs = all (`elem` xs)
 
 search :: Pitch -> Chord -> [(Pitch, Scale)]

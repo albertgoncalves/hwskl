@@ -11,7 +11,7 @@ weight :: Heap k v -> Int
 weight Leaf = 0
 weight (Node w _ _ _ _) = w
 
-merge :: Ord k => Heap k v -> Heap k v -> Heap k v
+merge :: (Ord k) => Heap k v -> Heap k v -> Heap k v
 merge l Leaf = l
 merge Leaf r = r
 merge t1@(Node _ k1 v1 l r) t2@(Node _ k2 _ _ _)
@@ -23,14 +23,14 @@ merge t1@(Node _ k1 v1 l r) t2@(Node _ k2 _ _ _)
     wl = weight l
     wr' = weight r'
 
-pop :: Ord k => Heap k v -> Maybe ((k, v), Heap k v)
+pop :: (Ord k) => Heap k v -> Maybe ((k, v), Heap k v)
 pop Leaf = Nothing
 pop (Node _ n x l r) = Just ((n, x), merge l r)
 
 node :: k -> v -> Heap k v
 node n x = Node 1 n x Leaf Leaf
 
-fromList :: Ord k => [(k, v)] -> Heap k v
+fromList :: (Ord k) => [(k, v)] -> Heap k v
 fromList = foldr (merge . uncurry node) Leaf
 
 main :: IO ()

@@ -1,12 +1,12 @@
 with import <nixpkgs> {};
-mkShell.override { stdenv = llvmPackages_14.stdenv; } {
+mkShell.override { stdenv = llvmPackages_16.stdenv; } {
     buildInputs = [
         ghc
         glibcLocales
         gmp
         hlint
         libffi
-        llvmPackages_14.lld
+        llvmPackages_16.lld
         ormolu
         parallel
         shellcheck

@@ -23,7 +23,7 @@ data Tree a
   | Leaf
   deriving (Show)
 
-makeTree :: Point a => [a] -> Tree a
+makeTree :: (Point a) => [a] -> Tree a
 makeTree = f 0
   where
     f _ [] = Leaf
@@ -36,7 +36,7 @@ makeTree = f 0
             ([x''], []) -> ([], x'', [])
             _ -> undefined
 
-withinRadius :: Point a => Tree a -> a -> Float -> (Sum Int, [a])
+withinRadius :: (Point a) => Tree a -> a -> Float -> (Sum Int, [a])
 withinRadius Leaf _ _ = (0, [])
 withinRadius (Node dim split l r) point radius =
   case cmpOn dim point split of

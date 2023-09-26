@@ -1,12 +1,12 @@
 import Data.List (partition)
 
-quickSort :: Ord a => [a] -> [a]
+quickSort :: (Ord a) => [a] -> [a]
 quickSort [] = []
 quickSort (x : xs) = quickSort a ++ [x] ++ quickSort b
   where
     (a, b) = partition (< x) xs
 
-quickSelect :: Ord a => [a] -> Int -> Maybe a
+quickSelect :: (Ord a) => [a] -> Int -> Maybe a
 quickSelect [] _ = Nothing
 quickSelect (x : xs) k
   | k < l = quickSelect a k

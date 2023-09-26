@@ -1,10 +1,10 @@
-insert :: Ord a => a -> [a] -> [a]
+insert :: (Ord a) => a -> [a] -> [a]
 insert x' [] = [x']
 insert x' xs'@(x : xs)
   | x' < x = x' : xs'
   | otherwise = x : insert x' xs
 
-insertionSort :: Ord a => [a] -> [a]
+insertionSort :: (Ord a) => [a] -> [a]
 insertionSort = foldr insert []
 
 main :: IO ()
