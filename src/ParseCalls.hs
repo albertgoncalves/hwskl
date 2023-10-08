@@ -1,4 +1,5 @@
 import Data.Char (isAlpha, isDigit, isSpace)
+import Data.List (intercalate)
 import Text.ParserCombinators.ReadP
   ( ReadP,
     chainl1,
@@ -8,6 +9,7 @@ import Text.ParserCombinators.ReadP
     look,
     munch,
     munch1,
+    pfail,
     readP_to_S,
     sepBy,
     (<++),
@@ -18,13 +20,20 @@ data Expr
   = ExprCall Expr [Expr]
   | ExprIdent String
   | ExprInt Int
+  | ExprTuple [Expr]
 
 instance Show Expr where
-  show (ExprCall func []) = printf "(%s)" (show func)
+  show (ExprCall func []) = printf "%s()" (show func)
   show (ExprCall func args) =
-    printf "(%s %s)" (show func) (unwords $ map show args)
+    printf "%s(%s)" (show func) (intercalate ", " $ map show args)
   show (ExprIdent ident) = ident
   show (ExprInt int) = show int
+  show (ExprTuple exprs) = printf "(%s)" $ intercalate ", " $ map show exprs
+
+choice :: [ReadP a] -> ReadP a
+choice [] = pfail
+choice [p] = p
+choice (p : ps) = p <++ choice ps
 
 space :: ReadP ()
 space = do
@@ -46,33 +55,39 @@ parens p = tokenChar '(' *> anyParens p <* tokenChar ')'
 anyParens :: ReadP a -> ReadP a
 anyParens p = p <++ parens p
 
-exprAtom :: ReadP Expr
-exprAtom = token $ exprIdent <++ exprInt
-  where
-    exprIdent :: ReadP Expr
-    exprIdent = ExprIdent <$> munch1 isAlpha
+exprIdent :: ReadP Expr
+exprIdent = ExprIdent <$> token (munch1 isAlpha)
 
-    exprInt :: ReadP Expr
-    exprInt = ExprInt . read <$> munch1 isDigit
+exprInt :: ReadP Expr
+exprInt = ExprInt . read <$> token (munch1 isDigit)
 
 exprCall :: ReadP Expr
 exprCall =
   foldl ExprCall
     <$> exprCallFunc
-    <*> chainl1
-      (tokenChar '(' *> ((: []) <$> exprCallArgs) <* tokenChar ')')
-      (pure (++))
+    <*> (tokenChar '(' *> ((: []) <$> exprCallArgs) <* tokenChar ')')
+      `chainl1` pure (++)
   where
     exprCallFunc :: ReadP Expr
-    exprCallFunc = exprAtom <++ parens expr
+    exprCallFunc = exprIdent <++ parens expr
 
     exprCallArgs :: ReadP [Expr]
     exprCallArgs = expr `sepBy` tokenChar ','
 
+exprTuple :: ReadP Expr
+exprTuple = do
+  _ <- tokenChar '('
+  e <- expr
+  es <- (tokenChar ',' *> ((: []) <$> expr)) `chainl1` pure (++)
+  _ <- tokenChar ')'
+  return $ ExprTuple $ e : es
+
 expr :: ReadP Expr
-expr = exprCall <++ exprAtom <++ parens expr
+expr = choice [exprCall, exprTuple, exprIdent, exprInt, parens expr]
 
 main :: IO ()
 main =
   mapM_ (print . fst) $
-    readP_to_S (expr <* token eof) " f #\n ( x , y ) ( z , 0 , 1 #\n ) #"
+    readP_to_S
+      (expr <* token eof)
+      " f #\n ( x , y ) ( z , ((0 , 1)) , 2 #\n ) #"
