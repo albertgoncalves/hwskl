@@ -20,6 +20,7 @@ import Text.Printf (printf)
 
 data Expr
   = ExprAccess Expr Int
+  | ExprBox
   | ExprCall Expr [Expr]
   | ExprIdent String
   | ExprInt Int
@@ -31,6 +32,7 @@ data Postfix
 
 instance Show Expr where
   show (ExprAccess expr offset) = printf "%s[%d]" (show expr) offset
+  show ExprBox = "[]"
   show (ExprCall func []) = printf "%s()" (show func)
   show (ExprCall func args) =
     printf "%s(%s)" (show func) (intercalate ", " $ map show args)
@@ -82,12 +84,9 @@ parse = readP_to_S (expr <* token eof)
             PostfixBrace offset -> ExprAccess exprLeft offset
             PostfixParen exprs -> ExprCall exprLeft exprs
         )
-        <$> exprCallFunc
+        <$> exprAtom
         <*> ((: []) <$> exprCallArgs) `chainl1` pure (++)
       where
-        exprCallFunc :: ReadP Expr
-        exprCallFunc = exprIdent <++ parens expr
-
         exprCallArgs :: ReadP Postfix
         exprCallArgs =
           choice
@@ -109,11 +108,17 @@ parse = readP_to_S (expr <* token eof)
       _ <- tokenChar ')'
       return $ ExprTuple $ e : es
 
+    exprBox :: ReadP Expr
+    exprBox = ExprBox <$ tokenChar '[' <* tokenChar ']'
+
+    exprAtom :: ReadP Expr
+    exprAtom = choice [exprTuple, exprIdent, exprInt, exprBox, parens expr]
+
     expr :: ReadP Expr
-    expr = choice [exprCall, exprTuple, exprIdent, exprInt, parens expr]
+    expr = choice [exprCall, exprAtom]
 
 main :: IO ()
 main =
   mapM_ (print . fst) $
     parse
-      " f #\n ( x , y()[1]() ) ( z , ((0 , 1)) , 2 #\n ) #"
+      " f #\n ( x , y()[1](), [ ] ( 1 ) ) ( z , ((0 , 1)) , 2 #\n ) #"
