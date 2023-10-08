@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.List (intercalate)
 import Text.ParserCombinators.ReadP
@@ -17,12 +19,18 @@ import Text.ParserCombinators.ReadP
 import Text.Printf (printf)
 
 data Expr
-  = ExprCall Expr [Expr]
+  = ExprAccess Expr Int
+  | ExprCall Expr [Expr]
   | ExprIdent String
   | ExprInt Int
   | ExprTuple [Expr]
 
+data Postfix
+  = PostfixBrace Int
+  | PostfixParen [Expr]
+
 instance Show Expr where
+  show (ExprAccess expr offset) = printf "%s[%d]" (show expr) offset
   show (ExprCall func []) = printf "%s()" (show func)
   show (ExprCall func args) =
     printf "%s(%s)" (show func) (intercalate ", " $ map show args)
@@ -35,59 +43,77 @@ choice [] = pfail
 choice [p] = p
 choice (p : ps) = p <++ choice ps
 
-space :: ReadP ()
-space = do
-  rest <- look
-  case rest of
-    ('#' : _) -> get *> munch (/= '\n') *> ((char '\n' *> space) <++ eof)
-    (c : _) | isSpace c -> get *> space
-    _ -> return ()
-
-token :: ReadP a -> ReadP a
-token = (space *>)
-
-tokenChar :: Char -> ReadP Char
-tokenChar = token . char
-
-parens :: ReadP a -> ReadP a
-parens p = tokenChar '(' *> anyParens p <* tokenChar ')'
-
-anyParens :: ReadP a -> ReadP a
-anyParens p = p <++ parens p
-
-exprIdent :: ReadP Expr
-exprIdent = ExprIdent <$> token (munch1 isAlpha)
-
-exprInt :: ReadP Expr
-exprInt = ExprInt . read <$> token (munch1 isDigit)
-
-exprCall :: ReadP Expr
-exprCall =
-  foldl ExprCall
-    <$> exprCallFunc
-    <*> (tokenChar '(' *> ((: []) <$> exprCallArgs) <* tokenChar ')')
-      `chainl1` pure (++)
+parse :: String -> [(Expr, String)]
+parse = readP_to_S (expr <* token eof)
   where
-    exprCallFunc :: ReadP Expr
-    exprCallFunc = exprIdent <++ parens expr
+    space :: ReadP ()
+    space = do
+      rest <- look
+      case rest of
+        ('#' : _) -> get *> munch (/= '\n') *> ((char '\n' *> space) <++ eof)
+        (c : _) | isSpace c -> get *> space
+        _ -> return ()
 
-    exprCallArgs :: ReadP [Expr]
-    exprCallArgs = expr `sepBy` tokenChar ','
+    token :: ReadP a -> ReadP a
+    token = (space *>)
 
-exprTuple :: ReadP Expr
-exprTuple = do
-  _ <- tokenChar '('
-  e <- expr
-  es <- (tokenChar ',' *> ((: []) <$> expr)) `chainl1` pure (++)
-  _ <- tokenChar ')'
-  return $ ExprTuple $ e : es
+    tokenChar :: Char -> ReadP Char
+    tokenChar = token . char
 
-expr :: ReadP Expr
-expr = choice [exprCall, exprTuple, exprIdent, exprInt, parens expr]
+    parens :: ReadP a -> ReadP a
+    parens p = tokenChar '(' *> anyParens p <* tokenChar ')'
+
+    anyParens :: ReadP a -> ReadP a
+    anyParens p = p <++ parens p
+
+    exprIdent :: ReadP Expr
+    exprIdent = ExprIdent <$> token (munch1 isAlpha)
+
+    int :: ReadP Int
+    int = read <$> token (munch1 isDigit)
+
+    exprInt :: ReadP Expr
+    exprInt = ExprInt <$> int
+
+    exprCall :: ReadP Expr
+    exprCall =
+      foldl
+        ( \exprLeft -> \case
+            PostfixBrace offset -> ExprAccess exprLeft offset
+            PostfixParen exprs -> ExprCall exprLeft exprs
+        )
+        <$> exprCallFunc
+        <*> ((: []) <$> exprCallArgs) `chainl1` pure (++)
+      where
+        exprCallFunc :: ReadP Expr
+        exprCallFunc = exprIdent <++ parens expr
+
+        exprCallArgs :: ReadP Postfix
+        exprCallArgs =
+          choice
+            [ tokenChar '(' *> exprCallParen <* tokenChar ')',
+              tokenChar '[' *> exprCallBrace <* tokenChar ']'
+            ]
+
+        exprCallParen :: ReadP Postfix
+        exprCallParen = PostfixParen <$> (expr `sepBy` tokenChar ',')
+
+        exprCallBrace :: ReadP Postfix
+        exprCallBrace = PostfixBrace <$> int
+
+    exprTuple :: ReadP Expr
+    exprTuple = do
+      _ <- tokenChar '('
+      e <- expr
+      es <- (tokenChar ',' *> ((: []) <$> expr)) `chainl1` pure (++)
+      _ <- tokenChar ')'
+      return $ ExprTuple $ e : es
+
+    expr :: ReadP Expr
+    expr = choice [exprCall, exprTuple, exprIdent, exprInt, parens expr]
 
 main :: IO ()
 main =
   mapM_ (print . fst) $
-    readP_to_S
-      (expr <* token eof)
-      " f #\n ( x , y ) ( z , ((0 , 1)) , 2 #\n ) #"
+    parse
+      " f #\n ( x , y()[1]() ) ( z , ((0 , 1)) , 2 #\n ) #"
