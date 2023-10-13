@@ -1,14 +1,12 @@
-{-# LANGUAGE LambdaCase #-}
-
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.List (intercalate)
 import Text.ParserCombinators.ReadP
   ( ReadP,
-    chainl1,
     char,
     eof,
     get,
     look,
+    many1,
     munch,
     munch1,
     pfail,
@@ -25,10 +23,6 @@ data Expr
   | ExprIdent String
   | ExprInt Int
   | ExprTuple [Expr]
-
-data Postfix
-  = PostfixBrace Int
-  | PostfixParen [Expr]
 
 instance Show Expr where
   show (ExprAccess expr offset) = printf "%s[%d]" (show expr) offset
@@ -77,36 +71,27 @@ parse = readP_to_S (expr <* token eof)
     exprInt :: ReadP Expr
     exprInt = ExprInt <$> int
 
+    exprCallArgs :: ReadP (Either Int [Expr])
+    exprCallArgs =
+      ( tokenChar '('
+          *> (Right <$> (expr `sepBy` tokenChar ','))
+          <* tokenChar ')'
+      )
+        <++ (tokenChar '[' *> (Left <$> int) <* tokenChar ']')
+
     exprCall :: ReadP Expr
     exprCall =
-      foldl
-        ( \exprLeft -> \case
-            PostfixBrace offset -> ExprAccess exprLeft offset
-            PostfixParen exprs -> ExprCall exprLeft exprs
-        )
+      foldl (flip $ either (flip ExprAccess) (flip ExprCall))
         <$> exprAtom
-        <*> ((: []) <$> exprCallArgs) `chainl1` pure (++)
-      where
-        exprCallArgs :: ReadP Postfix
-        exprCallArgs =
-          choice
-            [ tokenChar '(' *> exprCallParen <* tokenChar ')',
-              tokenChar '[' *> exprCallBrace <* tokenChar ']'
-            ]
-
-        exprCallParen :: ReadP Postfix
-        exprCallParen = PostfixParen <$> (expr `sepBy` tokenChar ',')
-
-        exprCallBrace :: ReadP Postfix
-        exprCallBrace = PostfixBrace <$> int
+        <*> many1 exprCallArgs
 
     exprTuple :: ReadP Expr
-    exprTuple = do
-      _ <- tokenChar '('
-      e <- expr
-      es <- (tokenChar ',' *> ((: []) <$> expr)) `chainl1` pure (++)
-      _ <- tokenChar ')'
-      return $ ExprTuple $ e : es
+    exprTuple =
+      ExprTuple
+        <$> ( (:)
+                <$> (tokenChar '(' *> expr)
+                <*> (many1 (tokenChar ',' *> expr) <* tokenChar ')')
+            )
 
     exprBox :: ReadP Expr
     exprBox = ExprBox <$ tokenChar '[' <* tokenChar ']'
@@ -115,7 +100,7 @@ parse = readP_to_S (expr <* token eof)
     exprAtom = choice [exprTuple, exprIdent, exprInt, exprBox, parens expr]
 
     expr :: ReadP Expr
-    expr = choice [exprCall, exprAtom]
+    expr = exprCall <++ exprAtom
 
 main :: IO ()
 main =
