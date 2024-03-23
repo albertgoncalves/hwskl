@@ -30,11 +30,13 @@ lint () {
 }
 
 export FLAGS=(
-    -dynamic
     "-fdiagnostics-color=always"
+    -fprof-auto
+    -fprof-cafs
     -funbox-strict-fields
     "-optl -fuse-ld=lld"
     "-outputdir $WD/build"
+    -prof
     -Wall
     -Wcompat
     -Werror
@@ -59,7 +61,7 @@ runh () {
         cd "$WD/src" || return
         ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
         cd "$pwd_" || return
-        "$WD/bin/$handle"
+        "$WD/bin/$handle" +RTS -xc -RTS
     )
 }
 
