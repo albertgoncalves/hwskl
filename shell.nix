@@ -1,17 +1,19 @@
 with import <nixpkgs> {};
-mkShell.override { stdenv = llvmPackages_16.stdenv; } {
+mkShell.override { stdenv = llvmPackages_17.stdenv; } {
     buildInputs = [
+        elfutils
         ghc
         glibcLocales
         gmp
         hlint
         libffi
-        llvmPackages_16.lld
+        llvmPackages_17.lld
         ormolu
         parallel
         shellcheck
     ];
     APPEND_LIBRARY_PATH = lib.makeLibraryPath [
+        elfutils
         gmp
         libffi
     ];
