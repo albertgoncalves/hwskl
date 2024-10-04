@@ -36,7 +36,7 @@ subst t0 s0 (App s1 ts1) = App s1 $ map (subst t0 s0) ts1
 type Subs = [(String, Term)]
 
 apply :: Term -> Subs -> Term
-apply = foldr (uncurry $ flip subst)
+apply = foldr $ uncurry $ flip subst
 
 unify1 :: Term -> Term -> Maybe Subs
 unify1 (Var s0) t1@(Var s1)
@@ -48,9 +48,7 @@ unify1 (App s0 ts0) (App s1 ts1)
 unify1 (Var s) t@(App _ _)
   | occurs s t = Nothing
   | otherwise = Just [(s, t)]
-unify1 t@(App _ _) (Var s)
-  | occurs s t = Nothing
-  | otherwise = Just [(s, t)]
+unify1 t0 t1@(Var _) = unify1 t1 t0
 
 unify :: [(Term, Term)] -> Maybe Subs
 unify [] = Just []
