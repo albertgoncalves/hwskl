@@ -45,6 +45,7 @@ export FLAGS=(
     -Wincomplete-uni-patterns
     -Wmissing-export-lists
     -Wmonomorphism-restriction
+    -Wno-name-shadowing
     -Wno-unused-top-binds
     -Wpartial-fields
     -Wunused-packages
