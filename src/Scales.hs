@@ -12,6 +12,7 @@ data Pitch
 
 data Scale
   = Major
+  | Minor
   | HarmonicMajor
   | HarmonicMinor
   | MelodicMinor
@@ -56,6 +57,7 @@ toInt (Sharp pitch) = succ $ toInt pitch
 
 toPitches :: Scale -> [Pitch]
 toPitches Major = [C, D, E, F, G, A, B]
+toPitches Minor = [C, D, Flat E, F, G, Flat A, Flat B]
 toPitches HarmonicMajor = [C, D, E, F, G, Flat A, B]
 toPitches HarmonicMinor = [C, D, Flat E, F, G, Flat A, B]
 toPitches MelodicMinor = [C, D, Flat E, F, G, A, B]
@@ -211,7 +213,7 @@ search root chord =
         )
         | pitch <-
             [C, Sharp C, D, Sharp D, E, F, Sharp F, G, Sharp G, A, Sharp A, B],
-          scale <- [Major, HarmonicMajor, HarmonicMinor, MelodicMinor]
+          scale <- [Major, Minor, HarmonicMajor, HarmonicMinor, MelodicMinor]
       ]
 
 main :: IO ()
