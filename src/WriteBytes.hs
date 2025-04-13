@@ -1,5 +1,5 @@
-import Data.ByteString.Builder (toLazyByteString, word8)
-import Data.ByteString.Lazy (writeFile)
+import Data.ByteString.Builder (char7, string7, toLazyByteString, word16BE, word8)
+import qualified Data.ByteString.Lazy as L
 import System.Environment (getEnv)
 import System.FilePath ((</>))
 import Prelude hiding (writeFile)
@@ -7,21 +7,11 @@ import Prelude hiding (writeFile)
 main :: IO ()
 main = do
   path <- getEnv "WD"
-  writeFile (path </> "out" </> "write_bytes.txt") $
+  L.writeFile (path </> "out" </> "write_bytes.txt") $
     toLazyByteString $
-      foldMap
-        word8
-        [ 0x48,
-          0x65,
-          0x6C,
-          0x6C,
-          0x6F,
-          0x2C,
-          0x20,
-          0x77,
-          0x6F,
-          0x72,
-          0x6C,
-          0x64,
-          0x21
-        ]
+      string7 "Hello"
+        <> word8 0x2C
+        <> char7 ' '
+        <> foldMap word8 [0x77, 0x6F]
+        <> foldMap word16BE [0x726C, 0x6421]
+        <> word8 0x0A
