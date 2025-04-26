@@ -34,7 +34,7 @@ export FLAGS=(
     -fprof-auto
     -fprof-cafs
     -funbox-strict-fields
-    "-optl -fuse-ld=lld"
+    "-optl-fuse-ld=lld"
     "-outputdir $WD/build"
     -prof
     -Wall

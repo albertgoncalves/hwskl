@@ -1,8 +1,9 @@
 with import <nixpkgs> {};
-mkShell.override { stdenv = llvmPackages_18.stdenv; } {
+mkShell.override { stdenv = llvmPackages_19.stdenv; } {
     buildInputs = [
         (haskellPackages.ghcWithPackages (pkgs: with pkgs; [
             HUnit
+            unbounded-delays
         ]))
 
         elfutils
@@ -10,7 +11,7 @@ mkShell.override { stdenv = llvmPackages_18.stdenv; } {
         gmp
         hlint
         libffi
-        llvmPackages_18.lld
+        llvmPackages_19.lld
         ormolu
         parallel
         shellcheck
