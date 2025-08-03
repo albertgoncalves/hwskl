@@ -12,23 +12,22 @@ weight Leaf = 0
 weight (Node w _ _ _ _) = w
 
 merge :: (Ord k) => Heap k v -> Heap k v -> Heap k v
-merge l Leaf = l
-merge Leaf r = r
-merge t1@(Node _ k1 v1 l r) t2@(Node _ k2 _ _ _)
-  | k2 < k1 = merge t2 t1
-  | wl < wr' = Node (wl + 1) k1 v1 r' l
-  | otherwise = Node (wr' + 1) k1 v1 l r'
+merge a Leaf = a
+merge Leaf b = b
+merge a@(Node _ i _ _ _) b@(Node _ j _ _ _)
+  | j < i = merge b a
+merge (Node _ k v l r) a@Node {}
+  | weight l < weight b = Node (weight l + 1) k v b l
+  | otherwise = Node (weight b + 1) k v l b
   where
-    r' = merge r t2
-    wl = weight l
-    wr' = weight r'
+    b = merge r a
 
 pop :: (Ord k) => Heap k v -> Maybe ((k, v), Heap k v)
 pop Leaf = Nothing
-pop (Node _ n x l r) = Just ((n, x), merge l r)
+pop (Node _ k v l r) = Just ((k, v), merge l r)
 
 node :: k -> v -> Heap k v
-node n x = Node 1 n x Leaf Leaf
+node k v = Node 1 k v Leaf Leaf
 
 fromList :: (Ord k) => [(k, v)] -> Heap k v
 fromList = foldr (merge . uncurry node) Leaf
@@ -41,7 +40,7 @@ main =
         [ (5, 'a') :: (Int, Char),
           (3, 'b'),
           (8, 'c'),
-          (1, 'd'),
+          (2, 'd'),
           (-3, 'e'),
           (1, 'f')
         ]
