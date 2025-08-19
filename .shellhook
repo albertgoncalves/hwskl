@@ -47,6 +47,7 @@ export FLAGS=(
     -Wmonomorphism-restriction
     -Wno-name-shadowing
     -Wno-unused-top-binds
+    -Wno-x-partial
     -Wpartial-fields
     -Wunused-packages
     -Wunused-type-patterns
