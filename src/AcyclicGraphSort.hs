@@ -2,21 +2,22 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 
 remove :: (Eq a) => a -> M.Map a (S.Set a) -> M.Map a (S.Set a)
-remove x = M.map (S.filter (/= x))
+remove = M.map . S.filter . (/=)
 
 prune :: M.Map a (S.Set a) -> M.Map a (S.Set a)
-prune = M.filterWithKey $ \_ -> not . S.null
+prune = M.filterWithKey $ const $ not . S.null
 
-loop :: (Ord a) => [a] -> M.Map a (S.Set a) -> S.Set a -> [a]
-loop [] _ _ = []
-loop (node : nodes) graph visited
-  | M.member node graph = loop (nodes ++ [node]) graph (S.insert node visited)
-  | otherwise = node : loop nodes (prune $ remove node graph) S.empty
+loop :: (Ord a) => M.Map a (S.Set a) -> S.Set a -> [a] -> [a]
+loop _ _ [] = []
+loop graph visited (node : nodes)
+  | S.member node visited = undefined
+  | M.member node graph = loop graph (S.insert node visited) $ nodes ++ [node]
+  | otherwise = node : loop (prune $ remove node graph) S.empty nodes
 
 sort :: (Ord a) => M.Map a (S.Set a) -> [a]
 sort graph
   | M.null graph = []
-  | otherwise = loop (S.toList $ M.foldr S.union (M.keysSet graph) graph) (prune graph) S.empty
+  | otherwise = loop (prune graph) S.empty $ S.toList $ M.foldr S.union (M.keysSet graph) graph
 
 main :: IO ()
 main =
