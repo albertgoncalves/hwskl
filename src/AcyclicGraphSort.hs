@@ -2,22 +2,24 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 
 remove :: (Eq a) => a -> M.Map a (S.Set a) -> M.Map a (S.Set a)
-remove = M.map . S.filter . (/=)
+remove = fmap . S.filter . (/=)
 
 prune :: M.Map a (S.Set a) -> M.Map a (S.Set a)
-prune = M.filterWithKey $ const $ not . S.null
+prune = M.filterWithKey $ const $ not . null
 
-loop :: (Ord a) => M.Map a (S.Set a) -> S.Set a -> [a] -> [a]
-loop _ _ [] = []
-loop graph visited (node : nodes)
-  | S.member node visited = undefined
-  | M.member node graph = loop graph (S.insert node visited) $ nodes ++ [node]
-  | otherwise = node : loop (prune $ remove node graph) S.empty nodes
+loop :: (Ord a) => M.Map a (S.Set a) -> S.Set a -> [S.Set a]
+loop graph nodes
+  | null nodes && null graph = []
+  | not $ null neighbors =
+      neighbors : loop (prune $ foldr remove graph neighbors) (S.difference nodes neighbors)
+  | otherwise = undefined
+  where
+    neighbors = S.difference nodes $ M.keysSet graph
 
-sort :: (Ord a) => M.Map a (S.Set a) -> [a]
+sort :: (Ord a) => M.Map a (S.Set a) -> [S.Set a]
 sort graph
-  | M.null graph = []
-  | otherwise = loop (prune graph) S.empty $ S.toList $ M.foldr S.union (M.keysSet graph) graph
+  | null graph = []
+  | otherwise = loop (prune graph) $ foldr S.union (M.keysSet graph) graph
 
 main :: IO ()
 main =
