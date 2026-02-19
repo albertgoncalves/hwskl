@@ -6,7 +6,7 @@ import Prelude hiding (writeFile)
 
 main :: IO ()
 main = do
-  path <- getEnv "WD"
+  path <- getEnv "PWD"
   L.writeFile (path </> "out" </> "write_bytes.txt") $
     toLazyByteString $
       string7 "Hello"

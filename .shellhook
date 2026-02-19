@@ -1,33 +1,10 @@
 #!/usr/bin/env bash
 
-if [ "$(uname -s)" = "Darwin" ]; then
-    alias ls="ls --color=auto"
-    alias ll="ls -al"
-else
-    alias open="xdg-open"
-fi
-
-export WD=$PWD
-
 for x in bin build out; do
-    if [ ! -d "$WD/$x" ]; then
-        mkdir "$WD/$x"
+    if [ ! -d "$PWD/$x" ]; then
+        mkdir "$PWD/$x"
     fi
 done
-
-hsall () {
-    find "$WD/src" -type f -name '*.hs' | parallel --will-cite '
-        echo {}
-        hlint {}
-        ormolu -i --no-cabal {}
-        echo ""
-    '
-}
-
-lint () {
-    hlint "$1"
-    ormolu -i --no-cabal "$1"
-}
 
 export FLAGS=(
     "-fdiagnostics-color=always"
@@ -35,7 +12,7 @@ export FLAGS=(
     -fprof-cafs
     -funbox-strict-fields
     "-optl-fuse-ld=lld"
-    "-outputdir $WD/build"
+    "-outputdir $PWD/build"
     -prof
     -Wall
     -Wcompat
@@ -53,30 +30,24 @@ export FLAGS=(
     -Wunused-type-patterns
 )
 
+lint () {
+    hlint "$1"
+    ormolu -i --no-cabal "$1"
+}
+
 runh () {
     handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
-    pwd_=$PWD
+    path=$PWD
     (
-        if [ "$(ls -A "$WD/build")" ]; then
-            rm "$WD/build"/*
+        if [ "$(ls -A "$path/build")" ]; then
+            rm "$path/build"/*
         fi
-        cd "$WD/src" || return
-        ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
-        cd "$pwd_" || return
-        "$WD/bin/$handle" +RTS -xc -RTS
+        cd "$path/src" || return
+        ghc "${FLAGS[@]}" -o "$path/bin/$handle" "$handle.hs" || return
+        cd "$path" || return
+        "$path/bin/$handle" +RTS -xc -RTS
     )
 }
 
-checkh () {
-    handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
-    (
-        cd "$WD/src" || return
-        ghc "${FLAGS[@]}" -fno-code "$handle.hs" || return
-    )
-}
-
-export -f checkh
-export -f hsall
 export -f lint
 export -f runh
-alias ormolu="ormolu -m inplace"
