@@ -1,4 +1,4 @@
-import Data.List (foldl', intercalate)
+import Data.List (intercalate)
 import Text.Printf (printf)
 
 data Ast

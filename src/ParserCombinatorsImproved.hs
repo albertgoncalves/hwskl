@@ -7,7 +7,6 @@
 import Control.Applicative (Alternative, empty, (<|>))
 import Data.Bifunctor (bimap, first)
 import Data.Char (isDigit, ord)
-import Data.List (foldl')
 import Data.Semigroup (Min (..))
 import Data.Text (Text, null, uncons)
 import Prelude hiding (null)

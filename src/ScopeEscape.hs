@@ -2,7 +2,7 @@
 
 import Control.Monad (void)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
-import Data.List (foldl', foldl1')
+import Data.List (foldl1')
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Text.ParserCombinators.ReadP

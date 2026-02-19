@@ -1,4 +1,3 @@
-import Data.List (foldl')
 import Data.Map.Strict (Map, empty, insert, lookup)
 import Prelude hiding (lookup)
 

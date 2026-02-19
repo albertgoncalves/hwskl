@@ -1,9 +1,7 @@
 {-# LANGUAGE Strict #-}
 
 import Data.Array (Array, listArray, (!))
-import Data.List (foldl')
 import qualified Data.Map.Strict as M
-import Debug.Trace (trace)
 import Text.Printf (printf)
 
 data Inst
@@ -102,7 +100,7 @@ lit _ = undefined
 
 eval :: Array Int Inst -> Int -> [Node] -> [Node]
 eval insts i xs =
-  case trace (show $ reverse xs) $ insts ! i of
+  case insts ! i of
     InstHalt -> xs
     InstPush -> eval insts (i + 2) $ Node (lit $ insts ! (i + 1)) : xs
     InstCopy -> eval insts (i + 2) $ (xs !! lit (insts ! (i + 1))) : xs
