@@ -211,9 +211,9 @@ search root chord =
             map (`mod` 12) $
               toInts pitch scale
         )
-        | pitch <-
-            [C, Sharp C, D, Sharp D, E, F, Sharp F, G, Sharp G, A, Sharp A, B],
-          scale <- [Major, Minor, HarmonicMajor, HarmonicMinor, MelodicMinor]
+      | pitch <-
+          [C, Sharp C, D, Sharp D, E, F, Sharp F, G, Sharp G, A, Sharp A, B],
+        scale <- [Major, Minor, HarmonicMajor, HarmonicMinor, MelodicMinor]
       ]
 
 main :: IO ()
