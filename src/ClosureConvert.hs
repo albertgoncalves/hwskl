@@ -1,5 +1,5 @@
 import Control.Exception (assert)
-import Data.List (intersect, nub)
+import Data.List (elemIndex, intersect, nub)
 import Test.HUnit (Test (..), runTestTTAndExit, (~?=))
 
 data Expr
@@ -7,6 +7,8 @@ data Expr
   | ExprVar Var
   | ExprFunc [Var] [Stmt] (Maybe (Frees, [Var]))
   | ExprCall Expr [Expr]
+  | ExprArray [Expr]
+  | ExprAccess Expr Int
   deriving (Eq, Show)
 
 data Stmt
@@ -61,6 +63,8 @@ collectExpr env (ExprCall func0 args0) = (frees1 <> frees2, ExprCall func1 args2
   where
     (frees1, func1) = collectExpr env func0
     (frees2, args2) = collectExprs env args0
+collectExpr env (ExprArray exprs) = ExprArray <$> collectExprs env exprs
+collectExpr env (ExprAccess expr index) = (`ExprAccess` index) <$> collectExpr env expr
 
 collectExprs :: Env -> [Expr] -> (Frees, [Expr])
 collectExprs = mapM . collectExpr
@@ -80,166 +84,239 @@ collectStmts :: Env -> [Stmt] -> (Env, (Frees, [Stmt]))
 collectStmts env =
   foldl' (\prev@(env, _) stmt -> prev <> (((: []) <$>) <$> collectStmt env stmt)) (env, mempty)
 
+convertExpr :: Frees -> Expr -> Expr
+convertExpr _ expr@(ExprInt _) = expr
+convertExpr (Frees frees) expr@(ExprVar var) =
+  case var `elemIndex` frees of
+    Just i -> ExprAccess (ExprAccess (ExprVar $ Var "env" True) i) 0
+    Nothing -> expr
+convertExpr _ (ExprFunc _ _ Nothing) = undefined
+convertExpr (Frees parentFrees) (ExprFunc args stmts (Just (Frees childFrees, escapes))) =
+  ExprArray
+    [ ExprFunc
+        (Var "env" True : args)
+        (map (convertStmt (Frees childFrees) escapes) stmts)
+        $ Just (Frees childFrees, escapes),
+      ExprArray $
+        map
+          ( \var ->
+              case var `elemIndex` parentFrees of
+                Just i -> ExprAccess (ExprVar $ Var "env" True) i
+                Nothing -> ExprVar var
+          )
+          childFrees
+    ]
+convertExpr frees (ExprCall func args) =
+  ExprCall (convertExpr frees func) (map (convertExpr frees) args)
+convertExpr frees (ExprArray exprs) = ExprArray $ map (convertExpr frees) exprs
+convertExpr frees (ExprAccess expr index) = ExprAccess (convertExpr frees expr) index
+
+convertStmt :: Frees -> [Var] -> Stmt -> Stmt
+convertStmt frees _ (StmtVoid expr) = StmtVoid $ convertExpr frees expr
+convertStmt frees escapes (StmtDecl var expr0) =
+  StmtDecl var $
+    if var `elem` escapes
+      then ExprArray [expr1]
+      else expr1
+  where
+    expr1 = convertExpr frees expr0
+convertStmt frees _ (StmtSet to from) = StmtSet (convertExpr frees to) (convertExpr frees from)
+convertStmt _ _ stmt@(StmtReturn Nothing) = stmt
+convertStmt frees _ (StmtReturn (Just expr)) = StmtReturn $ Just $ convertExpr frees expr
+
+varF :: String -> Var
+varF = (`Var` False)
+
+varT :: String -> Var
+varT = (`Var` True)
+
+exprVar :: String -> Bool -> Expr
+exprVar = (ExprVar .) . Var
+
+exprVarF :: String -> Expr
+exprVarF = (`exprVar` False)
+
+exprVarT :: String -> Expr
+exprVarT = (`exprVar` True)
+
+exprFunc :: [Var] -> [Stmt] -> Expr
+exprFunc args stmts = ExprFunc args stmts Nothing
+
+exprFunc0 :: [Stmt] -> Expr
+exprFunc0 = exprFunc []
+
+exprAccess2 :: Expr -> Int -> Int -> Expr
+exprAccess2 = (ExprAccess .) . ExprAccess
+
+stmtDecl :: String -> Bool -> Expr -> Stmt
+stmtDecl = (StmtDecl .) . Var
+
+stmtDeclF :: String -> Expr -> Stmt
+stmtDeclF = (`stmtDecl` False)
+
+stmtDeclT :: String -> Expr -> Stmt
+stmtDeclT = (`stmtDecl` True)
+
+stmtReturn :: Expr -> Stmt
+stmtReturn = StmtReturn . Just
+
 tests :: [Test]
 tests =
   [ collectExprs mempty [] ~?= mempty,
     collectStmts mempty [] ~?= mempty,
     (~?=)
-      (collectStmt mempty $ StmtDecl (Var "x" False) (ExprInt 0))
-      (Env [Var "x" False], (mempty, StmtDecl (Var "x" False) (ExprInt 0))),
+      (collectStmt mempty $ stmtDeclF "x" $ ExprInt 0)
+      (Env [varF "x"], (mempty, stmtDeclF "x" $ ExprInt 0)),
+    (~?=) (collectExpr mempty $ exprVarF "x") (Frees [varF "x"], exprVarF "x"),
     (~?=)
-      (collectExpr mempty $ ExprVar $ Var "x" False)
-      (Frees [Var "x" False], ExprVar (Var "x" False)),
+      (collectExpr mempty $ exprFunc0 [stmtReturn $ exprVarF "x"])
+      (Frees [varF "x"], ExprFunc [] [stmtReturn $ exprVarF "x"] $ Just (Frees [varF "x"], [])),
     (~?=)
-      (collectExpr mempty $ ExprFunc [] [StmtReturn $ Just $ ExprVar $ Var "x" False] Nothing)
-      ( Frees [Var "x" False],
-        ExprFunc
-          []
-          [StmtReturn $ Just $ ExprVar $ Var "x" False]
-          $ Just (Frees [Var "x" False], [])
+      (collectStmts mempty [stmtDeclF "x" $ ExprInt 0, stmtDeclT "y" $ exprVarT "z"])
+      ( Env [varT "y", varF "x"],
+        (Frees [varT "z"], [stmtDeclF "x" $ ExprInt 0, stmtDeclT "y" $ exprVarT "z"])
       ),
     (~?=)
       ( collectStmts
           mempty
-          [StmtDecl (Var "x" False) (ExprInt 0), StmtDecl (Var "y" True) (ExprVar $ Var "z" True)]
+          [stmtDeclF "x" $ ExprInt 0, stmtDeclF "f" $ exprFunc0 [stmtReturn $ exprVarF "x"]]
       )
-      ( Env [Var "y" True, Var "x" False],
-        ( Frees [Var "z" True],
-          [StmtDecl (Var "x" False) (ExprInt 0), StmtDecl (Var "y" True) (ExprVar $ Var "z" True)]
+      ( Env [varF "f", varF "x"],
+        ( Frees [varF "x"],
+          [ stmtDeclF "x" $ ExprInt 0,
+            stmtDeclF "f" $ ExprFunc [] [stmtReturn $ exprVarF "x"] $ Just (Frees [varF "x"], [])
+          ]
         )
       ),
     (~?=)
+      (collectExpr mempty $ exprFunc0 [stmtReturn $ exprFunc0 [stmtReturn $ exprVarF "x"]])
+      ( Frees [varF "x"],
+        ExprFunc
+          []
+          [stmtReturn $ ExprFunc [] [stmtReturn $ exprVarF "x"] $ Just (Frees [varF "x"], [])]
+          $ Just (Frees [varF "x"], [])
+      ),
+    (~?=)
+      ( collectExpr
+          mempty
+          $ exprFunc0 [stmtDeclF "x" $ ExprInt 0, stmtReturn $ exprFunc0 [stmtReturn $ exprVarF "x"]]
+      )
+      ( mempty,
+        ExprFunc
+          []
+          [ stmtDeclF "x" $ ExprInt 0,
+            stmtReturn $ ExprFunc [] [stmtReturn $ exprVarF "x"] $ Just (Frees [varF "x"], [])
+          ]
+          $ Just (mempty, [varF "x"])
+      ),
+    (~?=)
+      (collectStmts mempty [StmtVoid $ exprVarF "x", StmtVoid $ exprVarT "y"])
+      (mempty, (Frees [varF "x", varT "y"], [StmtVoid $ exprVarF "x", StmtVoid $ exprVarT "y"])),
+    (~?=)
+      (collectStmts mempty [StmtVoid $ exprVarT "y", StmtVoid $ exprVarF "x"])
+      (mempty, (Frees [varT "y", varF "x"], [StmtVoid $ exprVarT "y", StmtVoid $ exprVarF "x"])),
+    (~?=)
       ( collectStmts
           mempty
-          [ StmtDecl (Var "x" False) (ExprInt 0),
-            StmtDecl
-              (Var "f" False)
-              (ExprFunc [] [StmtReturn $ Just $ ExprVar $ Var "x" False] Nothing)
-          ]
+          [StmtVoid $ exprVarF "x", StmtVoid $ exprVarT "y", StmtVoid $ exprVarF "x"]
       )
-      ( Env [Var "f" False, Var "x" False],
-        ( Frees [Var "x" False],
-          [ StmtDecl (Var "x" False) (ExprInt 0),
-            StmtDecl
-              (Var "f" False)
-              ( ExprFunc
-                  []
-                  [StmtReturn $ Just $ ExprVar $ Var "x" False]
-                  $ Just (Frees [Var "x" False], [])
-              )
-          ]
+      ( mempty,
+        ( Frees [varF "x", varT "y"],
+          [StmtVoid $ exprVarF "x", StmtVoid $ exprVarT "y", StmtVoid $ exprVarF "x"]
         )
       ),
     (~?=)
       ( collectExpr
           mempty
-          $ ExprFunc
-            []
-            [StmtReturn $ Just $ ExprFunc [] [StmtReturn $ Just $ ExprVar $ Var "x" False] Nothing]
-            Nothing
-      )
-      ( Frees [Var "x" False],
-        ExprFunc
-          []
-          [ StmtReturn
-              $ Just
-              $ ExprFunc
-                []
-                [StmtReturn $ Just $ ExprVar $ Var "x" False]
-              $ Just (Frees [Var "x" False], [])
-          ]
-          $ Just (Frees [Var "x" False], [])
-      ),
-    (~?=)
-      ( collectExpr
-          mempty
-          $ ExprFunc
-            []
-            [ StmtDecl (Var "x" False) (ExprInt 0),
-              StmtReturn $ Just $ ExprFunc [] [StmtReturn $ Just $ ExprVar $ Var "x" False] Nothing
+          $ exprFunc
+            [varF "a", varF "b"]
+            [ stmtDeclF "x" $ exprVarF "a",
+              stmtReturn $
+                exprFunc0
+                  [ StmtSet (exprVarF "x") $ ExprCall (exprVarF "+") [exprVarF "x", exprVarF "b"],
+                    stmtReturn $ exprVarF "x"
+                  ]
             ]
-            Nothing
       )
-      ( mempty,
+      ( Frees [varF "+"],
         ExprFunc
-          []
-          [ StmtDecl (Var "x" False) (ExprInt 0),
-            StmtReturn
-              $ Just
+          [varF "a", varF "b"]
+          [ stmtDeclF "x" $ exprVarF "a",
+            stmtReturn
               $ ExprFunc
                 []
-                [StmtReturn $ Just $ ExprVar $ Var "x" False]
-              $ Just (Frees [Var "x" False], [])
-          ]
-          $ Just (mempty, [Var "x" False])
-      ),
-    (~?=)
-      (collectStmts mempty [StmtVoid $ ExprVar $ Var "x" False, StmtVoid $ ExprVar $ Var "y" True])
-      ( mempty,
-        ( Frees [Var "x" False, Var "y" True],
-          [StmtVoid $ ExprVar $ Var "x" False, StmtVoid $ ExprVar $ Var "y" True]
-        )
-      ),
-    (~?=)
-      (collectStmts mempty [StmtVoid $ ExprVar $ Var "y" True, StmtVoid $ ExprVar $ Var "x" False])
-      ( mempty,
-        ( Frees [Var "y" True, Var "x" False],
-          [StmtVoid $ ExprVar $ Var "y" True, StmtVoid $ ExprVar $ Var "x" False]
-        )
-      ),
-    (~?=)
-      ( collectStmts
-          mempty
-          [ StmtVoid $ ExprVar $ Var "x" False,
-            StmtVoid $ ExprVar $ Var "y" True,
-            StmtVoid $ ExprVar $ Var "x" False
-          ]
-      )
-      ( mempty,
-        ( Frees [Var "x" False, Var "y" True],
-          [ StmtVoid $ ExprVar $ Var "x" False,
-            StmtVoid $ ExprVar $ Var "y" True,
-            StmtVoid $ ExprVar $ Var "x" False
-          ]
-        )
-      ),
-    (~?=)
-      ( collectExpr
-          mempty
-          $ ExprFunc
-            [Var "a" False, Var "b" False]
-            [ StmtDecl (Var "x" False) (ExprVar $ Var "a" False),
-              StmtReturn $
-                Just $
-                  ExprFunc
-                    []
-                    [ StmtSet (ExprVar $ Var "x" False) $
-                        ExprCall
-                          (ExprVar $ Var "+" False)
-                          [ExprVar $ Var "x" False, ExprVar $ Var "b" False],
-                      StmtReturn $ Just $ ExprVar $ Var "x" False
-                    ]
-                    Nothing
-            ]
-            Nothing
-      )
-      ( Frees [Var "+" False],
-        ExprFunc
-          [Var "a" False, Var "b" False]
-          [ StmtDecl (Var "x" False) (ExprVar $ Var "a" False),
-            StmtReturn
-              $ Just
-              $ ExprFunc
-                []
-                [ StmtSet (ExprVar $ Var "x" False) $
-                    ExprCall
-                      (ExprVar $ Var "+" False)
-                      [ExprVar $ Var "x" False, ExprVar $ Var "b" False],
-                  StmtReturn $ Just $ ExprVar $ Var "x" False
+                [ StmtSet (exprVarF "x") $ ExprCall (exprVarF "+") [exprVarF "x", exprVarF "b"],
+                  stmtReturn $ exprVarF "x"
                 ]
-              $ Just (Frees [Var "+" False, Var "x" False, Var "b" False], [])
+              $ Just (Frees [varF "+", varF "x", varF "b"], [])
           ]
-          $ Just (Frees [Var "+" False], [Var "x" False, Var "b" False])
+          $ Just (Frees [varF "+"], [varF "x", varF "b"])
+      ),
+    (~?=)
+      ( collectExpr
+          mempty
+          $ exprFunc0 [stmtReturn $ ExprCall (exprVarF "+") [exprVarF "x", exprVarF "y"]]
+      )
+      ( Frees [varF "+", varF "x", varF "y"],
+        ExprFunc
+          []
+          [stmtReturn $ ExprCall (exprVarF "+") [exprVarF "x", exprVarF "y"]]
+          $ Just (Frees [varF "+", varF "x", varF "y"], [])
+      ),
+    (~?=)
+      ( collectExpr
+          mempty
+          $ exprFunc0
+            [ stmtDeclF "x" $ ExprInt 0,
+              StmtVoid $
+                exprFunc0
+                  [ stmtDeclF "y" $ ExprInt 1,
+                    stmtReturn $
+                      exprFunc0 [stmtReturn $ ExprCall (exprVarF "+") [exprVarF "x", exprVarF "y"]]
+                  ]
+            ]
+      )
+      ( Frees [varF "+"],
+        ExprFunc
+          []
+          [ stmtDeclF "x" $ ExprInt 0,
+            StmtVoid
+              $ ExprFunc
+                []
+                [ stmtDeclF "y" $ ExprInt 1,
+                  stmtReturn $
+                    ExprFunc [] [stmtReturn $ ExprCall (exprVarF "+") [exprVarF "x", exprVarF "y"]] $
+                      Just (Frees [varF "+", varF "x", varF "y"], [])
+                ]
+              $ Just (Frees [varF "+", varF "x"], [varF "y"])
+          ]
+          $ Just (Frees [varF "+"], [varF "x"])
+      ),
+    (~?=)
+      (convertExpr (Frees [varF "x", varF "y"]) $ exprVarF "x")
+      (exprAccess2 (exprVarT "env") 0 0),
+    (~?=)
+      (convertExpr (Frees [varF "x", varF "y"]) $ exprVarF "y")
+      (exprAccess2 (exprVarT "env") 1 0),
+    (~?=)
+      (convertStmt mempty [varF "x"] $ stmtDeclF "x" $ ExprInt 0)
+      (stmtDeclF "x" $ ExprArray [ExprInt 0]),
+    (~?=)
+      ( convertExpr (Frees [varF "x"]) $
+          ExprFunc [] [stmtReturn $ ExprCall (exprVarF "+") [exprVarF "x", exprVarF "y"]] $
+            Just (Frees [varF "x", varF "y"], [])
+      )
+      ( ExprArray
+          [ ExprFunc
+              [varT "env"]
+              [ stmtReturn $
+                  ExprCall
+                    (exprVarF "+")
+                    [exprAccess2 (exprVarT "env") 0 0, exprAccess2 (exprVarT "env") 1 0]
+              ]
+              $ Just (Frees [varF "x", varF "y"], []),
+            ExprArray [ExprAccess (exprVarT "env") 0, exprVarF "y"]
+          ]
       )
   ]
 
