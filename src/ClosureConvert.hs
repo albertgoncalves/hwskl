@@ -124,10 +124,9 @@ convertExpr frees escapes (ExprAccess expr index) = ExprAccess (convertExpr free
 
 convertStmt :: Frees -> [String] -> Stmt -> Stmt
 convertStmt frees escapes (StmtVoid expr) = StmtVoid $ convertExpr frees escapes expr
-convertStmt frees escapes (StmtDecl var expr0) =
-  if var `elem` escapes
-    then StmtDecl var $ ExprArray [expr1]
-    else StmtDecl var expr1
+convertStmt frees escapes (StmtDecl var expr0)
+  | var `elem` escapes = StmtDecl var $ ExprArray [expr1]
+  | otherwise = StmtDecl var expr1
   where
     expr1 = convertExpr frees escapes expr0
 convertStmt frees escapes (StmtSet to from) =
