@@ -33,9 +33,7 @@ instance Monoid Size where
   mempty = Size 0
 
 getSize :: (Monoid b, Sized b) => JoinList b a -> Int
-getSize = f . size . tag
-  where
-    f (Size n) = n
+getSize = (\(Size n) -> n) . size . tag
 
 getIndex :: (Sized b, Monoid b) => Int -> JoinList b a -> Maybe a
 getIndex _ Empty = Nothing
