@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 
-for x in bin build out; do
-    if [ ! -d "$PWD/$x" ]; then
-        mkdir "$PWD/$x"
+export WD=$PWD
+
+for dir in bin build out; do
+    if [ ! -d "$WD/$dir" ]; then
+        mkdir "$WD/$dir"
     fi
 done
 
@@ -12,7 +14,7 @@ export FLAGS=(
     -fprof-cafs
     -funbox-strict-fields
     "-optl-fuse-ld=lld"
-    "-outputdir $PWD/build"
+    "-outputdir $WD/build"
     -prof
     -Wall
     -Wcompat
@@ -36,16 +38,15 @@ lint () {
 }
 
 runh () {
-    handle=$(echo "$1" | sed 's/^[a-z\/]*\/\(.*\)\.[a-z]*$/\1/')
-    path=$PWD
+    handle=$(basename "${1%%.*}")
     (
-        if [ "$(ls -A "$path/build")" ]; then
-            rm "$path/build"/*
+        if [ "$(ls -A "$WD/build")" ]; then
+            rm "$WD/build"/*
         fi
-        cd "$path/src" || return
-        ghc "${FLAGS[@]}" -o "$path/bin/$handle" "$handle.hs" || return
-        cd "$path" || return
-        "$path/bin/$handle" +RTS -xc -RTS
+        cd "$WD/src" || return
+        ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
+        cd "$WD" || return
+        "$WD/bin/$handle" +RTS -xc -RTS
     )
 }
 
