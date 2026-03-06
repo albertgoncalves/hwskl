@@ -1,9 +1,20 @@
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Lazy (StateT, evalStateT, execStateT, get, gets, modify, put)
-import Data.List (intercalate)
+import Control.Monad.Trans.State.Lazy
+  ( State,
+    StateT,
+    evalStateT,
+    execState,
+    execStateT,
+    get,
+    gets,
+    modify,
+    put,
+  )
+import Data.List (intercalate, sort)
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
 import Test.HUnit (Test (..), runTestTT, (~?=))
 
 {- % -}
@@ -56,7 +67,7 @@ data Type
   | TypeLazy Type
   | TypeFunc [Type] Type
   | TypeK Int
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 {- % -}
 
@@ -251,27 +262,41 @@ stmtToType (StmtReturn Nothing) = do
 
 {- % -}
 
-unify :: [(Type, Type)] -> StateT (M.Map Int Type) (Either TypeCheckerError) ()
+unify :: [(Type, Type)] -> StateT [(Int, Type)] (Either TypeCheckerError) ()
 unify [] = return ()
 unify pairs = mapM (uncurry unify1) pairs >>= unify . concat
 
-unify1 :: Type -> Type -> StateT (M.Map Int Type) (Either TypeCheckerError) [(Type, Type)]
+unify1 :: Type -> Type -> StateT [(Int, Type)] (Either TypeCheckerError) [(Type, Type)]
 unify1 left@(TypeFunc leftArgs leftReturn) right@(TypeFunc rightArgs rightReturn)
   | length leftArgs /= length rightArgs = lift $ Left $ TypeCheckerErrorUnify1 left right
   | otherwise = return $ zip (leftReturn : leftArgs) (rightReturn : rightArgs)
 unify1 left right
   | left == right = return []
 unify1 left@(TypeK leftK) right@(TypeK rightK) = do
-  modify $ M.insert leftK right
-  modify $ M.insert rightK left
+  modify ([(leftK, right), (rightK, left)] ++)
   return []
 unify1 (TypeK k) right = do
-  modify $ M.insert k right
+  modify ((k, right) :)
   return []
 unify1 left (TypeK k) = do
-  modify $ M.insert k left
+  modify ((k, left) :)
   return []
 unify1 left right = lift $ Left $ TypeCheckerErrorUnify1 left right
+
+deref1 :: Int -> State (M.Map Int Type) (Maybe Type)
+deref1 parentK = do
+  types <- get
+  case M.lookup parentK types of
+    Just parentType@(TypeK childK) -> do
+      put $ M.delete parentK types
+      someType <- fromMaybe parentType <$> deref1 childK
+      modify $ M.insert parentK someType
+      return $ Just someType
+    Just parentType -> return $ Just parentType
+    Nothing -> return Nothing
+
+deref :: M.Map Int Type -> M.Map Int Type
+deref types = execState (mapM deref1 $ M.keys types) types
 
 {- % -}
 
@@ -288,8 +313,8 @@ main = do
             putChar '\n'
             mapM_ print $ M.toList $ getTypeCheckerForces typeChecker
             putChar '\n'
-            either print (mapM_ print . M.toList) $
-              execStateT (unify $ getTypeCheckerPairs typeChecker) mempty
+            either print (mapM_ print . sort) $
+              execStateT (unify $ getTypeCheckerPairs typeChecker) []
         )
         $ execStateT (stmtToType lazyStmt)
         $ TypeChecker 0 (M.mapKeys (: []) intrinsics) mempty [] [] []
