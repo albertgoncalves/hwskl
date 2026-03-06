@@ -116,7 +116,7 @@ exprToForce :: Expr -> StateT Int Maybe Expr
 exprToForce expr@(ExprInt {}) = return expr
 exprToForce expr@(ExprVar {}) = (`ExprForce` expr) <$> nextK
 exprToForce expr@(ExprCall {}) = (`ExprForce` expr) <$> nextK
-exprToForce (ExprLazy func args) = return $ ExprCall func args
+exprToForce expr@(ExprLazy {}) = (`ExprForce` expr) <$> nextK
 exprToForce (ExprForce {}) = lift Nothing
 
 testExprToLazy :: [Test]
@@ -262,26 +262,34 @@ stmtToType (StmtReturn Nothing) = do
 
 {- % -}
 
-unify :: [(Type, Type)] -> StateT [(Int, Type)] (Either TypeCheckerError) ()
+unify :: [(Type, Type)] -> StateT (M.Map Int Type) (Either TypeCheckerError) ()
 unify [] = return ()
 unify pairs = mapM (uncurry unify1) pairs >>= unify . concat
 
-unify1 :: Type -> Type -> StateT [(Int, Type)] (Either TypeCheckerError) [(Type, Type)]
+unify1 :: Type -> Type -> StateT (M.Map Int Type) (Either TypeCheckerError) [(Type, Type)]
+unify1 left right
+  | left == right = return []
 unify1 left@(TypeFunc leftArgs leftReturn) right@(TypeFunc rightArgs rightReturn)
   | length leftArgs /= length rightArgs = lift $ Left $ TypeCheckerErrorUnify1 left right
   | otherwise = return $ zip (leftReturn : leftArgs) (rightReturn : rightArgs)
-unify1 left right
-  | left == right = return []
-unify1 left@(TypeK leftK) right@(TypeK rightK) = do
-  modify ([(leftK, right), (rightK, left)] ++)
-  return []
+unify1 (TypeLazy left) (TypeLazy right) = unify1 left right
 unify1 (TypeK k) right = do
-  modify ((k, right) :)
+  insertK k right
   return []
 unify1 left (TypeK k) = do
-  modify ((k, left) :)
+  insertK k left
   return []
 unify1 left right = lift $ Left $ TypeCheckerErrorUnify1 left right
+
+insertK :: Int -> Type -> StateT (M.Map Int Type) (Either TypeCheckerError) ()
+insertK k newType = do
+  types <- get
+  case M.lookup k types of
+    Just oldType -> unify1 oldType newType >>= unify
+    Nothing -> put $ M.insert k newType types
+
+deref :: M.Map Int Type -> M.Map Int Type
+deref types = execState (mapM deref1 $ M.keys types) types
 
 deref1 :: Int -> State (M.Map Int Type) (Maybe Type)
 deref1 parentK = do
@@ -292,11 +300,16 @@ deref1 parentK = do
       someType <- fromMaybe parentType <$> deref1 childK
       modify $ M.insert parentK someType
       return $ Just someType
+    Just (TypeLazy (TypeK childK)) -> do
+      maybeType <- deref1 childK
+      case maybeType of
+        Just someType -> do
+          let parentType = TypeLazy someType
+          modify $ M.insert parentK parentType
+          return $ Just parentType
+        Nothing -> return Nothing
     Just parentType -> return $ Just parentType
     Nothing -> return Nothing
-
-deref :: M.Map Int Type -> M.Map Int Type
-deref types = execState (mapM deref1 $ M.keys types) types
 
 {- % -}
 
@@ -313,8 +326,11 @@ main = do
             putChar '\n'
             mapM_ print $ M.toList $ getTypeCheckerForces typeChecker
             putChar '\n'
-            either print (mapM_ print . sort) $
-              execStateT (unify $ getTypeCheckerPairs typeChecker) []
+            let pairs = getTypeCheckerPairs typeChecker
+            mapM_ print $ sort pairs
+            putChar '\n'
+            either print (mapM_ print . sort . M.toList . deref) $
+              execStateT (unify pairs) mempty
         )
         $ execStateT (stmtToType lazyStmt)
         $ TypeChecker 0 (M.mapKeys (: []) intrinsics) mempty [] [] []
