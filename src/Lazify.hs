@@ -25,7 +25,7 @@ data Expr
   | ExprVar String
   | ExprCall Expr [Expr]
   | ExprLazy Expr [Expr]
-  | ExprForce Int Expr
+  | ExprForce (Maybe Int) Expr
   deriving (Eq)
 
 instance Show Expr where
@@ -34,7 +34,8 @@ instance Show Expr where
   show (ExprCall (ExprVar "+") [left, right]) = "(" ++ show left ++ " + " ++ show right ++ ")"
   show (ExprCall func args) = show func ++ "(" ++ intercalate ", " (map show args) ++ ")"
   show (ExprLazy func args) = "Lazy(" ++ intercalate ", " (map show $ func : args) ++ ")"
-  show (ExprForce k arg) = "__force_" ++ show k ++ "__(" ++ show arg ++ ")"
+  show (ExprForce (Just k) arg) = "__force_" ++ show k ++ "__(" ++ show arg ++ ")"
+  show (ExprForce Nothing arg) = "__force__(" ++ show arg ++ ")"
 
 {- % -}
 
@@ -123,9 +124,9 @@ exprToLazy expr@(ExprForce {}) = lift $ Left $ ErrorExprToLazy expr
 
 exprToForce :: Expr -> StateT Int (Either Error) Expr
 exprToForce expr@(ExprInt {}) = return expr
-exprToForce expr@(ExprVar {}) = (`ExprForce` expr) <$> nextK
-exprToForce expr@(ExprCall {}) = (`ExprForce` expr) <$> nextK
-exprToForce expr@(ExprLazy {}) = (`ExprForce` expr) <$> nextK
+exprToForce expr@(ExprVar {}) = (`ExprForce` expr) . Just <$> nextK
+exprToForce expr@(ExprCall {}) = (`ExprForce` expr) . Just <$> nextK
+exprToForce expr@(ExprLazy {}) = (`ExprForce` expr) . Just <$> nextK
 exprToForce expr@(ExprForce {}) = lift $ Left $ ErrorExprToForce expr
 
 testExprToLazy :: [Test]
@@ -145,10 +146,10 @@ testExprToLazy =
         Right $ ExprCall (ExprVar "print") [ExprInt 1]
       ),
       ( exprToLazy $ ExprCall (ExprVar "print") [ExprVar "x"],
-        Right $ ExprCall (ExprVar "print") [ExprForce 0 $ ExprVar "x"]
+        Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprVar "x"]
       ),
       ( exprToLazy $ ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []],
-        Right $ ExprCall (ExprVar "print") [ExprForce 0 $ ExprLazy (ExprVar "f") []]
+        Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprLazy (ExprVar "f") []]
       )
     ]
 
@@ -216,7 +217,7 @@ exprToType (ExprCall func args) = do
       }
   return returnType
 exprToType (ExprLazy func args) = TypeLazy <$> exprToType (ExprCall func args)
-exprToType (ExprForce k arg) = do
+exprToType (ExprForce (Just k) arg) = do
   argType <- exprToType arg
   returnType <- nextTypeK
   modify $
@@ -226,6 +227,7 @@ exprToType (ExprForce k arg) = do
             M.insert k (TypeFunc [argType] returnType) $ getTypeCheckerForces typeChecker
         }
   return returnType
+exprToType expr@(ExprForce Nothing _) = lift $ Left $ ErrorExprToType expr
 
 {- % -}
 
@@ -352,10 +354,11 @@ deref parentType = return parentType
 {- % -}
 
 rewriteExpr :: M.Map Int Type -> Expr -> Either Error Expr
-rewriteExpr forces parentExpr@(ExprForce k childExpr) =
+rewriteExpr forces parentExpr@(ExprForce (Just k) childExpr) =
   case M.lookup k forces of
     Just (TypeFunc [argType] _) -> rewriteExprForce argType childExpr
     _ -> Left $ ErrorRewriteExpr parentExpr
+rewriteExpr _ expr@(ExprForce Nothing _) = Left $ ErrorRewriteExpr expr
 rewriteExpr forces (ExprCall func args) =
   ExprCall <$> rewriteExpr forces func <*> mapM (rewriteExpr forces) args
 rewriteExpr _ expr@(ExprInt {}) = Right expr
@@ -364,11 +367,39 @@ rewriteExpr _ expr@(ExprLazy {}) = Right expr
 
 rewriteExprForce :: Type -> Expr -> Either Error Expr
 rewriteExprForce (TypeLazy childType) expr =
-  rewriteExprForce childType $ ExprCall (ExprVar "__force__") [expr]
+  rewriteExprForce childType $ ExprForce Nothing expr
 rewriteExprForce _ expr = Right expr
 
 rewriteStmt :: M.Map Int Type -> Stmt -> Either Error Stmt
 rewriteStmt = mapStmt . rewriteExpr
+
+testRewriteStmt :: [Test]
+testRewriteStmt =
+  map
+    (uncurry (~?=))
+    [ ( rewriteStmt mempty $ StmtVoid $ ExprForce (Just 0) $ ExprVar "x",
+        Left $ ErrorRewriteExpr $ ExprForce (Just 0) $ ExprVar "x"
+      ),
+      ( rewriteStmt (M.singleton 0 TypeNone) $ StmtVoid $ ExprForce (Just 0) $ ExprVar "x",
+        Left $ ErrorRewriteExpr $ ExprForce (Just 0) $ ExprVar "x"
+      ),
+      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeInt] TypeInt) $
+          StmtVoid $
+            ExprForce (Just 0) $
+              ExprVar "x",
+        Right $ StmtVoid $ ExprVar "x"
+      ),
+      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeInt] TypeInt) $
+          StmtVoid $
+            ExprForce (Just 0) $
+              ExprVar "x",
+        Right $
+          StmtVoid $
+            ExprForce Nothing $
+              ExprForce Nothing $
+                ExprVar "x"
+      )
+    ]
 
 {- % -}
 
@@ -385,7 +416,7 @@ lazify stmt = do
 
 main :: IO ()
 main = do
-  _ <- runTestTT $ TestList $ testExprToLazy ++ testStmtToLazy ++ testUnify
+  _ <- runTestTT $ TestList $ testExprToLazy ++ testStmtToLazy ++ testUnify ++ testRewriteStmt
   either print print $
     lazify $
       StmtFunc
