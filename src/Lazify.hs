@@ -79,20 +79,21 @@ data Type
   deriving (Eq, Ord, Show)
 
 data TypeChecker = TypeChecker
-  { getTypeCheckerK :: Int,
-    getTypeCheckerBindings :: M.Map [String] Type,
-    getTypeCheckerForces :: M.Map Int Type,
-    getTypeCheckerFuncStack :: [String],
-    getTypeCheckerReturnTypes :: [Type],
-    getTypeCheckerPairs :: [(Type, Type)]
+  { typeCheckerK :: Int,
+    typeCheckerBindings :: M.Map [String] Type,
+    typeCheckerForces :: M.Map Int Type,
+    typeCheckerFuncStack :: [String],
+    typeCheckerReturnTypes :: [Type],
+    typeCheckerPairs :: [(Type, Type)]
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 data Error
   = ErrorExprToLazy Expr
   | ErrorExprToForce Expr
   | ErrorExprToType Expr
   | ErrorRewriteExpr Expr
+  | ErrorRewriteExprForce Expr
   | ErrorStmtToType Stmt
   | ErrorUnify1 Type Type
   deriving (Eq, Show)
@@ -102,6 +103,9 @@ data Error
 intrinsics :: M.Map String Type
 intrinsics =
   M.fromList [("print", TypeFunc [TypeInt] TypeNone), ("+", TypeFunc [TypeInt, TypeInt] TypeInt)]
+
+newTypeChecker :: TypeChecker
+newTypeChecker = TypeChecker 0 (M.mapKeys (: []) intrinsics) mempty [] [] []
 
 {- % -}
 
@@ -173,18 +177,17 @@ testStmtToLazy =
 nextTypeK :: (Monad m) => StateT TypeChecker m Type
 nextTypeK = do
   typeChecker <- get
-  let k = getTypeCheckerK typeChecker
+  let k = typeCheckerK typeChecker
   let typeK = TypeK k
-  modify $ \typeChecker -> typeChecker {getTypeCheckerK = k + 1}
+  put $ typeChecker {typeCheckerK = k + 1}
   return typeK
 
 pushBinding :: (Monad m) => String -> Type -> StateT TypeChecker m ()
 pushBinding var varType = do
   modify $ \typeChecker ->
     typeChecker
-      { getTypeCheckerBindings =
-          M.insert (var : getTypeCheckerFuncStack typeChecker) varType $
-            getTypeCheckerBindings typeChecker
+      { typeCheckerBindings =
+          M.insert (var : typeCheckerFuncStack typeChecker) varType $ typeCheckerBindings typeChecker
       }
 
 argToType :: (Monad m) => String -> StateT TypeChecker m Type
@@ -198,22 +201,16 @@ argToType arg = do
 exprToType :: Expr -> StateT TypeChecker (Either Error) Type
 exprToType (ExprInt _) = return TypeInt
 exprToType expr@(ExprVar var) = do
-  bindings <- gets getTypeCheckerBindings
-  funcStack <- gets getTypeCheckerFuncStack
-  maybe (lift $ Left $ ErrorExprToType expr) return $ loop bindings var funcStack
-  where
-    loop :: M.Map [String] Type -> String -> [String] -> Maybe Type
-    loop bindings var [] = M.lookup [var] bindings
-    loop bindings var funcStack@(_ : rest) =
-      M.lookup (var : funcStack) bindings <|> loop bindings var rest
+  bindings <- gets typeCheckerBindings
+  funcStack <- gets typeCheckerFuncStack
+  maybe (lift $ Left $ ErrorExprToType expr) return $ exprToTypeLoop bindings var funcStack
 exprToType (ExprCall func args) = do
   funcType <- exprToType func
   argTypes <- mapM exprToType args
   returnType <- nextTypeK
   modify $ \typeChecker ->
     typeChecker
-      { getTypeCheckerPairs =
-          (funcType, TypeFunc argTypes returnType) : getTypeCheckerPairs typeChecker
+      { typeCheckerPairs = (funcType, TypeFunc argTypes returnType) : typeCheckerPairs typeChecker
       }
   return returnType
 exprToType (ExprLazy func args) = TypeLazy <$> exprToType (ExprCall func args)
@@ -223,32 +220,34 @@ exprToType (ExprForce (Just k) arg) = do
   modify $
     \typeChecker ->
       typeChecker
-        { getTypeCheckerForces =
-            M.insert k (TypeFunc [argType] returnType) $ getTypeCheckerForces typeChecker
+        { typeCheckerForces =
+            M.insert k (TypeFunc [argType] returnType) $ typeCheckerForces typeChecker
         }
   return returnType
 exprToType expr@(ExprForce Nothing _) = lift $ Left $ ErrorExprToType expr
+
+exprToTypeLoop :: M.Map [String] Type -> String -> [String] -> Maybe Type
+exprToTypeLoop bindings var [] = M.lookup [var] bindings
+exprToTypeLoop bindings var funcStack@(_ : rest) =
+  M.lookup (var : funcStack) bindings <|> exprToTypeLoop bindings var rest
 
 {- % -}
 
 stmtToType :: Stmt -> StateT TypeChecker (Either Error) ()
 stmtToType stmt@(StmtDecl var expr) = do
   exprType <- exprToType expr
-  bindings <- gets getTypeCheckerBindings
-  funcStack <- gets getTypeCheckerFuncStack
+  bindings <- gets typeCheckerBindings
+  funcStack <- gets typeCheckerFuncStack
   _ <- case M.lookup (var : funcStack) bindings of
     Just _ -> lift $ Left $ ErrorStmtToType stmt
     Nothing -> return ()
   pushBinding var exprType
 stmtToType (StmtFunc var args stmts) = do
-  parentFuncStack <- gets getTypeCheckerFuncStack
-  parentReturnTypes <- gets getTypeCheckerReturnTypes
+  parentFuncStack <- gets typeCheckerFuncStack
+  parentReturnTypes <- gets typeCheckerReturnTypes
 
   modify $ \typeChecker ->
-    typeChecker
-      { getTypeCheckerFuncStack = var : parentFuncStack,
-        getTypeCheckerReturnTypes = []
-      }
+    typeChecker {typeCheckerFuncStack = var : parentFuncStack, typeCheckerReturnTypes = []}
 
   argTypes <- mapM argToType args
   returnType <- nextTypeK
@@ -257,24 +256,56 @@ stmtToType (StmtFunc var args stmts) = do
 
   modify $ \typeChecker ->
     typeChecker
-      { getTypeCheckerFuncStack = parentFuncStack,
-        getTypeCheckerReturnTypes = parentReturnTypes,
-        getTypeCheckerPairs =
-          map (returnType,) (getTypeCheckerReturnTypes typeChecker)
-            ++ getTypeCheckerPairs typeChecker
+      { typeCheckerFuncStack = parentFuncStack,
+        typeCheckerReturnTypes = parentReturnTypes,
+        typeCheckerPairs =
+          map (returnType,) (typeCheckerReturnTypes typeChecker) ++ typeCheckerPairs typeChecker
       }
   pushBinding var (TypeFunc argTypes returnType)
 stmtToType (StmtVoid expr) = do
   exprType <- exprToType expr
   modify $ \typeChecker ->
-    typeChecker {getTypeCheckerPairs = (exprType, TypeNone) : getTypeCheckerPairs typeChecker}
+    typeChecker {typeCheckerPairs = (exprType, TypeNone) : typeCheckerPairs typeChecker}
 stmtToType (StmtReturn (Just expr)) = do
   exprType <- exprToType expr
   modify $ \typeChecker ->
-    typeChecker {getTypeCheckerReturnTypes = exprType : getTypeCheckerReturnTypes typeChecker}
+    typeChecker {typeCheckerReturnTypes = exprType : typeCheckerReturnTypes typeChecker}
 stmtToType (StmtReturn Nothing) = do
   modify $ \typeChecker ->
-    typeChecker {getTypeCheckerReturnTypes = TypeNone : getTypeCheckerReturnTypes typeChecker}
+    typeChecker {typeCheckerReturnTypes = TypeNone : typeCheckerReturnTypes typeChecker}
+
+testStmtToType :: [Test]
+testStmtToType =
+  map
+    (uncurry (~?=))
+    [ ( execStateT
+          (stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprVar "x"])
+          newTypeChecker,
+        Right $
+          newTypeChecker
+            { typeCheckerK = 2,
+              typeCheckerBindings =
+                M.union
+                  (M.fromList [(["add"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "add"], TypeK 0)])
+                  $ typeCheckerBindings newTypeChecker,
+              typeCheckerPairs = [(TypeK 1, TypeK 0)]
+            }
+      ),
+      ( execStateT
+          (stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprForce (Just 0) $ ExprVar "x"])
+          newTypeChecker,
+        Right $
+          newTypeChecker
+            { typeCheckerK = 3,
+              typeCheckerBindings =
+                M.union
+                  (M.fromList [(["add"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "add"], TypeK 0)])
+                  $ typeCheckerBindings newTypeChecker,
+              typeCheckerForces = M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 2,
+              typeCheckerPairs = [(TypeK 1, TypeK 2)]
+            }
+      )
+    ]
 
 {- % -}
 
@@ -356,7 +387,7 @@ deref parentType = return parentType
 rewriteExpr :: M.Map Int Type -> Expr -> Either Error Expr
 rewriteExpr forces parentExpr@(ExprForce (Just k) childExpr) =
   case M.lookup k forces of
-    Just (TypeFunc [argType] _) -> rewriteExprForce argType childExpr
+    Just (TypeFunc [argType] returnType) -> rewriteExprForce returnType argType childExpr
     _ -> Left $ ErrorRewriteExpr parentExpr
 rewriteExpr _ expr@(ExprForce Nothing _) = Left $ ErrorRewriteExpr expr
 rewriteExpr forces (ExprCall func args) =
@@ -365,10 +396,14 @@ rewriteExpr _ expr@(ExprInt {}) = Right expr
 rewriteExpr _ expr@(ExprVar {}) = Right expr
 rewriteExpr _ expr@(ExprLazy {}) = Right expr
 
-rewriteExprForce :: Type -> Expr -> Either Error Expr
-rewriteExprForce (TypeLazy childType) expr =
-  rewriteExprForce childType $ ExprForce Nothing expr
-rewriteExprForce _ expr = Right expr
+rewriteExprForce :: Type -> Type -> Expr -> Either Error Expr
+rewriteExprForce exprType (TypeLazy childType) expr =
+  rewriteExprForce exprType childType $ ExprForce Nothing expr
+rewriteExprForce _ (TypeK _) expr = Left $ ErrorRewriteExprForce expr
+rewriteExprForce _ TypeNone expr = Left $ ErrorRewriteExprForce expr
+rewriteExprForce expectedType givenType expr
+  | expectedType /= givenType = Left $ ErrorRewriteExprForce expr
+  | otherwise = Right expr
 
 rewriteStmt :: M.Map Int Type -> Stmt -> Either Error Stmt
 rewriteStmt = mapStmt . rewriteExpr
@@ -389,15 +424,29 @@ testRewriteStmt =
               ExprVar "x",
         Right $ StmtVoid $ ExprVar "x"
       ),
+      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeInt] $ TypeFunc [] TypeInt) $
+          StmtVoid $
+            ExprForce (Just 0) $
+              ExprVar "x",
+        Left $ ErrorRewriteExprForce $ ExprVar "x"
+      ),
       ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeInt] TypeInt) $
           StmtVoid $
             ExprForce (Just 0) $
               ExprVar "x",
-        Right $
+        Right $ StmtVoid $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
+      ),
+      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy $ TypeK 0] $ TypeK 0) $
           StmtVoid $
-            ExprForce Nothing $
-              ExprForce Nothing $
-                ExprVar "x"
+            ExprForce (Just 0) $
+              ExprVar "x",
+        Left $ ErrorRewriteExprForce $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
+      ),
+      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeNone] TypeNone) $
+          StmtVoid $
+            ExprForce (Just 0) $
+              ExprVar "x",
+        Left $ ErrorRewriteExprForce $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
       )
     ]
 
@@ -406,33 +455,46 @@ testRewriteStmt =
 lazify :: Stmt -> Either Error Stmt
 lazify stmt = do
   lazyStmt <- evalStateT (stmtToLazy stmt) 0
-  typeChecker <-
-    execStateT (stmtToType lazyStmt) $
-      TypeChecker 0 (M.mapKeys (: []) intrinsics) mempty [] [] []
-  types <- execStateT (unify $ getTypeCheckerPairs typeChecker) mempty
+  typeChecker <- execStateT (stmtToType lazyStmt) newTypeChecker
+  types <- execStateT (unify $ typeCheckerPairs typeChecker) mempty
   rewriteStmt
-    (M.fromList $ evalState (mapM (mapM deref) $ M.toList $ getTypeCheckerForces typeChecker) types)
+    (M.fromList $ evalState (mapM (mapM deref) $ M.toList $ typeCheckerForces typeChecker) types)
     lazyStmt
 
 main :: IO ()
 main = do
-  _ <- runTestTT $ TestList $ testExprToLazy ++ testStmtToLazy ++ testUnify ++ testRewriteStmt
+  _ <-
+    runTestTT $
+      TestList $
+        concat
+          [testExprToLazy, testStmtToLazy, testUnify, testStmtToType, testRewriteStmt]
   either print print $
     lazify $
       StmtFunc
         "main"
         []
         [ StmtFunc
-            "add"
+            "add_0"
             ["x", "y"]
             [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
           StmtFunc
-            "f"
+            "add_1"
+            ["x", "y"]
+            [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+          StmtFunc
+            "lazy_add_0"
             ["x"]
-            [StmtReturn $ Just $ ExprCall (ExprVar "add") [ExprVar "x", ExprInt 1]],
-          StmtDecl "x" $ ExprCall (ExprVar "f") [ExprInt (-2)],
+            [StmtReturn $ Just $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+          StmtFunc
+            "lazy_add_1"
+            ["x"]
+            [StmtReturn $ Just $ ExprCall (ExprVar "add_1") [ExprVar "x", ExprInt 1]],
+          StmtDecl "x" $ ExprCall (ExprVar "lazy_add_0") [ExprInt (-2)],
+          StmtDecl "y" $ ExprCall (ExprVar "lazy_add_1") [ExprVar "x"],
           StmtVoid $ ExprCall (ExprVar "print") [ExprInt 1],
           StmtVoid $ ExprCall (ExprVar "print") [ExprVar "x"],
-          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "f") [ExprInt 3]],
-          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add") $ map ExprInt [4, 5]]
+          StmtVoid $ ExprCall (ExprVar "print") [ExprVar "y"],
+          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_0") [ExprInt 3]],
+          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_1") [ExprVar "x"]],
+          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
         ]
