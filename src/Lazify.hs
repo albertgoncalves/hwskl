@@ -12,6 +12,7 @@ import Control.Monad.Trans.State.Lazy
     modify,
     put,
   )
+import Data.Bifunctor (first)
 import Data.List (intercalate)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
@@ -76,8 +77,6 @@ data Type
   | TypeK Int
   deriving (Eq, Ord, Show)
 
-{- % -}
-
 data TypeChecker = TypeChecker
   { getTypeCheckerK :: Int,
     getTypeCheckerBindings :: M.Map [String] Type,
@@ -131,22 +130,27 @@ exprToForce expr@(ExprForce {}) = lift $ Left $ ErrorExprToForce expr
 
 testExprToLazy :: [Test]
 testExprToLazy =
-  [ evalStateT (exprToLazy $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"]) 0
-      ~?= Right (ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"]),
-    evalStateT
+  map
+    (uncurry (~?=) . first (`evalStateT` 0))
+    [ ( exprToLazy $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
+        Right $ ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"]
+      ),
       ( exprToLazy $
-          ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]]
+          ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]],
+        Right $
+          ExprLazy (ExprVar "f") $
+            ExprVar "x" : [ExprLazy (ExprVar "f") $ map ExprVar ["y", "z"]]
+      ),
+      ( exprToLazy $ ExprCall (ExprVar "print") [ExprInt 1],
+        Right $ ExprCall (ExprVar "print") [ExprInt 1]
+      ),
+      ( exprToLazy $ ExprCall (ExprVar "print") [ExprVar "x"],
+        Right $ ExprCall (ExprVar "print") [ExprForce 0 $ ExprVar "x"]
+      ),
+      ( exprToLazy $ ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []],
+        Right $ ExprCall (ExprVar "print") [ExprForce 0 $ ExprLazy (ExprVar "f") []]
       )
-      0
-      ~?= Right
-        (ExprLazy (ExprVar "f") $ ExprVar "x" : [ExprLazy (ExprVar "f") $ map ExprVar ["y", "z"]]),
-    evalStateT (exprToLazy $ ExprCall (ExprVar "print") [ExprInt 1]) 0
-      ~?= Right (ExprCall (ExprVar "print") [ExprInt 1]),
-    evalStateT (exprToLazy $ ExprCall (ExprVar "print") [ExprVar "x"]) 0
-      ~?= Right (ExprCall (ExprVar "print") [ExprForce 0 $ ExprVar "x"]),
-    evalStateT (exprToLazy $ ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []]) 0
-      ~?= Right (ExprCall (ExprVar "print") [ExprForce 0 $ ExprLazy (ExprVar "f") []])
-  ]
+    ]
 
 {- % -}
 
@@ -155,9 +159,13 @@ stmtToLazy = mapStmt exprToLazy
 
 testStmtToLazy :: [Test]
 testStmtToLazy =
-  [ evalStateT (stmtToLazy (StmtDecl "z" $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"])) 0
-      ~?= Right (StmtDecl "z" $ ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"])
-  ]
+  map
+    (uncurry (~?=) . first (`evalStateT` 0))
+    [ (stmtToLazy $ StmtDecl "x" $ ExprInt 0, Right $ StmtDecl "x" $ ExprInt 0),
+      ( stmtToLazy $ StmtDecl "z" $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
+        Right $ StmtDecl "z" $ ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"]
+      )
+    ]
 
 {- % -}
 
@@ -294,6 +302,28 @@ insertK k newType = do
     Just oldType -> unify1 oldType newType >>= unify
     Nothing -> put $ M.insert k newType types
 
+testUnify :: [Test]
+testUnify =
+  map
+    (uncurry (~?=) . first (`execStateT` mempty))
+    [ (unify [], Right mempty),
+      (unify [(TypeNone, TypeNone)], Right mempty),
+      (unify [(TypeK 0, TypeNone)], Right $ M.singleton 0 TypeNone),
+      (unify [(TypeK 0, TypeK 1)], Right $ M.singleton 0 $ TypeK 1),
+      ( unify [(TypeFunc [TypeK 0] TypeInt, TypeFunc [TypeInt] $ TypeK 0)],
+        Right $ M.singleton 0 TypeInt
+      ),
+      ( unify [(TypeFunc [TypeK 0] $ TypeFunc [] TypeNone, TypeFunc [TypeInt] $ TypeK 1)],
+        Right $ M.fromList [(0, TypeInt), (1, TypeFunc [] TypeNone)]
+      ),
+      ( unify [(TypeFunc [] TypeNone, TypeFunc [TypeInt] TypeNone)],
+        Left $ ErrorUnify1 (TypeFunc [] TypeNone) (TypeFunc [TypeInt] TypeNone)
+      ),
+      (unify [(TypeNone, TypeInt)], Left $ ErrorUnify1 TypeNone TypeInt)
+    ]
+
+{- % -}
+
 derefK :: Int -> State (M.Map Int Type) (Maybe Type)
 derefK parentK = do
   types <- get
@@ -303,22 +333,21 @@ derefK parentK = do
       childType <- fromMaybe parentType <$> derefK childK
       modify $ M.insert parentK childType
       return $ Just childType
-    Just (TypeLazy childType) -> Just . TypeLazy <$> derefType childType
+    Just (TypeLazy childType) -> Just . TypeLazy <$> deref childType
     Just (TypeFunc argTypes returnType) ->
-      Just <$> (TypeFunc <$> mapM derefType argTypes <*> derefType returnType)
+      Just <$> (TypeFunc <$> mapM deref argTypes <*> deref returnType)
     Just parentType -> return $ Just parentType
     Nothing -> return Nothing
 
-derefType :: Type -> State (M.Map Int Type) Type
-derefType parentType@(TypeK parentK) = do
+deref :: Type -> State (M.Map Int Type) Type
+deref parentType@(TypeK parentK) = do
   maybeType <- derefK parentK
   case maybeType of
     Just childType -> return childType
     Nothing -> return parentType
-derefType (TypeFunc argTypes returnType) =
-  TypeFunc <$> mapM derefType argTypes <*> derefType returnType
-derefType (TypeLazy childType) = TypeLazy <$> derefType childType
-derefType parentType = return parentType
+deref (TypeFunc argTypes returnType) = TypeFunc <$> mapM deref argTypes <*> deref returnType
+deref (TypeLazy childType) = TypeLazy <$> deref childType
+deref parentType = return parentType
 
 {- % -}
 
@@ -351,14 +380,12 @@ lazify stmt = do
       TypeChecker 0 (M.mapKeys (: []) intrinsics) mempty [] [] []
   types <- execStateT (unify $ getTypeCheckerPairs typeChecker) mempty
   rewriteStmt
-    ( M.fromList $
-        evalState (mapM (mapM derefType) $ M.toList $ getTypeCheckerForces typeChecker) types
-    )
+    (M.fromList $ evalState (mapM (mapM deref) $ M.toList $ getTypeCheckerForces typeChecker) types)
     lazyStmt
 
 main :: IO ()
 main = do
-  _ <- runTestTT $ TestList $ testExprToLazy ++ testStmtToLazy
+  _ <- runTestTT $ TestList $ testExprToLazy ++ testStmtToLazy ++ testUnify
   either print print $
     lazify $
       StmtFunc
