@@ -34,7 +34,7 @@ instance Show Expr where
   show (ExprCall (ExprVar "+") [left, right]) = "(" ++ show left ++ " + " ++ show right ++ ")"
   show (ExprCall func args) = show func ++ "(" ++ intercalate ", " (map show args) ++ ")"
   show (ExprLazy func args) = "Lazy(" ++ intercalate ", " (map show $ func : args) ++ ")"
-  show (ExprForce (Just k) arg) = "__force_" ++ show k ++ "__(" ++ show arg ++ ")"
+  show (ExprForce (Just k) arg) = "__?_" ++ show k ++ "__(" ++ show arg ++ ")"
   show (ExprForce Nothing arg) = "__force__(" ++ show arg ++ ")"
 
 {- % -}
