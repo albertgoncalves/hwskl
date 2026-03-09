@@ -15,7 +15,6 @@ import Control.Monad.Trans.State.Lazy
 import Data.Bifunctor (first)
 import Data.List (intercalate)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
 import Test.HUnit (Test (..), runTestTT, (~?=))
 
 {- % -}
@@ -357,30 +356,34 @@ testUnify =
 
 {- % -}
 
-derefK :: Int -> State (M.Map Int Type) (Maybe Type)
-derefK parentK = do
-  types <- get
-  case M.lookup parentK types of
-    Just parentType@(TypeK childK) -> do
-      put $ M.delete parentK types
-      childType <- fromMaybe parentType <$> derefK childK
-      modify $ M.insert parentK childType
-      return $ Just childType
-    Just (TypeLazy childType) -> Just . TypeLazy <$> deref childType
-    Just (TypeFunc argTypes returnType) ->
-      Just <$> (TypeFunc <$> mapM deref argTypes <*> deref returnType)
-    Just parentType -> return $ Just parentType
-    Nothing -> return Nothing
-
 deref :: Type -> State (M.Map Int Type) Type
 deref parentType@(TypeK parentK) = do
-  maybeType <- derefK parentK
-  case maybeType of
-    Just childType -> return childType
+  types <- get
+  case M.lookup parentK types of
+    Just childType0 -> do
+      modify $ M.delete parentK
+      childType1 <- deref childType0
+      modify $ M.insert parentK childType1
+      return childType1
     Nothing -> return parentType
 deref (TypeFunc argTypes returnType) = TypeFunc <$> mapM deref argTypes <*> deref returnType
 deref (TypeLazy childType) = TypeLazy <$> deref childType
 deref parentType = return parentType
+
+testDeref :: [Test]
+testDeref =
+  map
+    (uncurry (~?=))
+    [ (evalState (deref $ TypeK 0) mempty, TypeK 0),
+      (evalState (deref $ TypeK 0) $ M.singleton 0 TypeInt, TypeInt),
+      (evalState (deref $ TypeK 0) $ M.fromList [(0, TypeK 1), (1, TypeK 0)], TypeK 0),
+      ( evalState (deref $ TypeK 0) (M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 0),
+        TypeFunc [TypeK 0] $ TypeK 0
+      ),
+      ( evalState (deref $ TypeK 0) $ M.fromList [(0, TypeFunc [TypeK 1] $ TypeK 1), (1, TypeK 0)],
+        TypeFunc [TypeK 0] $ TypeK 0
+      )
+    ]
 
 {- % -}
 
@@ -467,7 +470,7 @@ main = do
     runTestTT $
       TestList $
         concat
-          [testExprToLazy, testStmtToLazy, testUnify, testStmtToType, testRewriteStmt]
+          [testExprToLazy, testStmtToLazy, testStmtToType, testUnify, testDeref, testRewriteStmt]
   either print print $
     lazify $
       StmtFunc
