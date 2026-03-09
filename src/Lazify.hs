@@ -352,11 +352,15 @@ testUnify =
         Left $ ErrorUnify1 (TypeFunc [] TypeNone) (TypeFunc [TypeInt] TypeNone)
       ),
       (unify [(TypeNone, TypeInt)], Left $ ErrorUnify1 TypeNone TypeInt),
+      ( unify [(TypeK 1, TypeK 0), (TypeK 2, TypeK 0), (TypeK 0, TypeInt)],
+        Right $ M.fromList [(0, TypeInt), (1, TypeK 0), (2, TypeK 0)]
+      ),
       ( unify
-          [ (TypeFunc [] (TypeK 0), TypeFunc [] (TypeK 1)),
-            (TypeFunc [] (TypeK 0), TypeFunc [] (TypeK 2))
+          [ (TypeFunc [] $ TypeK 0, TypeFunc [] $ TypeK 1),
+            (TypeFunc [] $ TypeK 0, TypeFunc [] $ TypeK 2),
+            (TypeFunc [] $ TypeK 0, TypeFunc [] TypeInt)
           ],
-        Right $ M.fromList [(0, TypeK 1), (1, TypeK 2)]
+        Right $ M.fromList [(0, TypeK 1), (1, TypeK 2), (2, TypeInt)]
       )
     ]
 
