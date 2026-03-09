@@ -135,23 +135,22 @@ exprToForce expr@(ExprForce {}) = lift $ Left $ ErrorExprToForce expr
 testExprToLazy :: [Test]
 testExprToLazy =
   map
-    (uncurry (~?=) . first (`evalStateT` 0))
-    [ ( exprToLazy $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
+    (uncurry (~?=) . first ((`evalStateT` 0) . exprToLazy))
+    [ ( ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
         Right $ ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"]
       ),
-      ( exprToLazy $
-          ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]],
+      ( ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]],
         Right $
           ExprLazy (ExprVar "f") $
             ExprVar "x" : [ExprLazy (ExprVar "f") $ map ExprVar ["y", "z"]]
       ),
-      ( exprToLazy $ ExprCall (ExprVar "print") [ExprInt 1],
+      ( ExprCall (ExprVar "print") [ExprInt 1],
         Right $ ExprCall (ExprVar "print") [ExprInt 1]
       ),
-      ( exprToLazy $ ExprCall (ExprVar "print") [ExprVar "x"],
+      ( ExprCall (ExprVar "print") [ExprVar "x"],
         Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprVar "x"]
       ),
-      ( exprToLazy $ ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []],
+      ( ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []],
         Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprLazy (ExprVar "f") []]
       )
     ]
@@ -164,9 +163,9 @@ stmtToLazy = mapStmt exprToLazy
 testStmtToLazy :: [Test]
 testStmtToLazy =
   map
-    (uncurry (~?=) . first (`evalStateT` 0))
-    [ (stmtToLazy $ StmtDecl "x" $ ExprInt 0, Right $ StmtDecl "x" $ ExprInt 0),
-      ( stmtToLazy $ StmtDecl "z" $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
+    (uncurry (~?=) . first ((`evalStateT` 0) . stmtToLazy))
+    [ (StmtDecl "x" $ ExprInt 0, Right $ StmtDecl "x" $ ExprInt 0),
+      ( StmtDecl "z" $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
         Right $ StmtDecl "z" $ ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"]
       )
     ]
@@ -276,10 +275,8 @@ stmtToType (StmtReturn Nothing) = do
 testStmtToType :: [Test]
 testStmtToType =
   map
-    (uncurry (~?=))
-    [ ( execStateT
-          (stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprVar "x"])
-          newTypeChecker,
+    (uncurry (~?=) . first (`execStateT` newTypeChecker))
+    [ ( stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprVar "x"],
         Right $
           newTypeChecker
             { typeCheckerK = 2,
@@ -290,9 +287,7 @@ testStmtToType =
               typeCheckerPairs = [(TypeK 1, TypeK 0)]
             }
       ),
-      ( execStateT
-          (stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprForce (Just 0) $ ExprVar "x"])
-          newTypeChecker,
+      ( stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprForce (Just 0) $ ExprVar "x"],
         Right $
           newTypeChecker
             { typeCheckerK = 3,
@@ -337,29 +332,26 @@ insertK k newType = do
 testUnify :: [Test]
 testUnify =
   map
-    (uncurry (~?=) . first (`execStateT` mempty))
-    [ (unify [], Right mempty),
-      (unify [(TypeNone, TypeNone)], Right mempty),
-      (unify [(TypeK 0, TypeNone)], Right $ M.singleton 0 TypeNone),
-      (unify [(TypeK 0, TypeK 1)], Right $ M.singleton 0 $ TypeK 1),
-      ( unify [(TypeFunc [TypeK 0] TypeInt, TypeFunc [TypeInt] $ TypeK 0)],
-        Right $ M.singleton 0 TypeInt
-      ),
-      ( unify [(TypeFunc [TypeK 0] $ TypeFunc [] TypeNone, TypeFunc [TypeInt] $ TypeK 1)],
+    (uncurry (~?=) . first ((`execStateT` mempty) . unify))
+    [ ([], Right mempty),
+      ([(TypeNone, TypeNone)], Right mempty),
+      ([(TypeK 0, TypeNone)], Right $ M.singleton 0 TypeNone),
+      ([(TypeK 0, TypeK 1)], Right $ M.singleton 0 $ TypeK 1),
+      ([(TypeFunc [TypeK 0] TypeInt, TypeFunc [TypeInt] $ TypeK 0)], Right $ M.singleton 0 TypeInt),
+      ( [(TypeFunc [TypeK 0] $ TypeFunc [] TypeNone, TypeFunc [TypeInt] $ TypeK 1)],
         Right $ M.fromList [(0, TypeInt), (1, TypeFunc [] TypeNone)]
       ),
-      ( unify [(TypeFunc [] TypeNone, TypeFunc [TypeInt] TypeNone)],
+      ( [(TypeFunc [] TypeNone, TypeFunc [TypeInt] TypeNone)],
         Left $ ErrorUnify1 (TypeFunc [] TypeNone) (TypeFunc [TypeInt] TypeNone)
       ),
-      (unify [(TypeNone, TypeInt)], Left $ ErrorUnify1 TypeNone TypeInt),
-      ( unify [(TypeK 1, TypeK 0), (TypeK 2, TypeK 0), (TypeK 0, TypeInt)],
+      ([(TypeNone, TypeInt)], Left $ ErrorUnify1 TypeNone TypeInt),
+      ( [(TypeK 1, TypeK 0), (TypeK 2, TypeK 0), (TypeK 0, TypeInt)],
         Right $ M.fromList [(0, TypeInt), (1, TypeK 0), (2, TypeK 0)]
       ),
-      ( unify
-          [ (TypeFunc [] $ TypeK 0, TypeFunc [] $ TypeK 1),
-            (TypeFunc [] $ TypeK 0, TypeFunc [] $ TypeK 2),
-            (TypeFunc [] $ TypeK 0, TypeFunc [] TypeInt)
-          ],
+      ( [ (TypeFunc [] $ TypeK 0, TypeFunc [] $ TypeK 1),
+          (TypeFunc [] $ TypeK 0, TypeFunc [] $ TypeK 2),
+          (TypeFunc [] $ TypeK 0, TypeFunc [] TypeInt)
+        ],
         Right $ M.fromList [(0, TypeK 1), (1, TypeK 2), (2, TypeInt)]
       )
     ]
@@ -383,14 +375,14 @@ deref parentType = return parentType
 testDeref :: [Test]
 testDeref =
   map
-    (uncurry (~?=))
-    [ (evalState (deref $ TypeK 0) mempty, TypeK 0),
-      (evalState (deref $ TypeK 0) $ M.singleton 0 TypeInt, TypeInt),
-      (evalState (deref $ TypeK 0) $ M.fromList [(0, TypeK 1), (1, TypeK 0)], TypeK 0),
-      ( evalState (deref $ TypeK 0) (M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 0),
+    (uncurry (~?=) . first (uncurry evalState))
+    [ ((deref $ TypeK 0, mempty), TypeK 0),
+      ((deref $ TypeK 0, M.singleton 0 TypeInt), TypeInt),
+      ((deref $ TypeK 0, M.fromList [(0, TypeK 1), (1, TypeK 0)]), TypeK 0),
+      ( (deref $ TypeK 0, M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 0),
         TypeFunc [TypeK 0] $ TypeK 0
       ),
-      ( evalState (deref $ TypeK 0) $ M.fromList [(0, TypeFunc [TypeK 1] $ TypeK 1), (1, TypeK 0)],
+      ( (deref $ TypeK 0, M.fromList [(0, TypeFunc [TypeK 1] $ TypeK 1), (1, TypeK 0)]),
         TypeFunc [TypeK 0] $ TypeK 0
       )
     ]
@@ -424,41 +416,34 @@ rewriteStmt = mapStmt . rewriteExpr
 testRewriteStmt :: [Test]
 testRewriteStmt =
   map
-    (uncurry (~?=))
-    [ ( rewriteStmt mempty $ StmtVoid $ ExprForce (Just 0) $ ExprVar "x",
+    (uncurry (~?=) . first (uncurry rewriteStmt))
+    [ ( (mempty, StmtVoid $ ExprForce (Just 0) $ ExprVar "x"),
         Left $ ErrorRewriteExpr $ ExprForce (Just 0) $ ExprVar "x"
       ),
-      ( rewriteStmt (M.singleton 0 TypeNone) $ StmtVoid $ ExprForce (Just 0) $ ExprVar "x",
+      ( (M.singleton 0 TypeNone, StmtVoid $ ExprForce (Just 0) $ ExprVar "x"),
         Left $ ErrorRewriteExpr $ ExprForce (Just 0) $ ExprVar "x"
       ),
-      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeInt] TypeInt) $
-          StmtVoid $
-            ExprForce (Just 0) $
-              ExprVar "x",
+      ( (M.singleton 0 $ TypeFunc [TypeInt] TypeInt, StmtVoid $ ExprForce (Just 0) $ ExprVar "x"),
         Right $ StmtVoid $ ExprVar "x"
       ),
-      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeInt] $ TypeFunc [] TypeInt) $
-          StmtVoid $
-            ExprForce (Just 0) $
-              ExprVar "x",
+      ( ( M.singleton 0 $ TypeFunc [TypeInt] $ TypeFunc [] TypeInt,
+          StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
+        ),
         Left $ ErrorRewriteExprForce $ ExprVar "x"
       ),
-      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeInt] TypeInt) $
-          StmtVoid $
-            ExprForce (Just 0) $
-              ExprVar "x",
+      ( ( M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeInt] TypeInt,
+          StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
+        ),
         Right $ StmtVoid $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
       ),
-      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy $ TypeK 0] $ TypeK 0) $
-          StmtVoid $
-            ExprForce (Just 0) $
-              ExprVar "x",
+      ( ( M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy $ TypeK 0] $ TypeK 0,
+          StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
+        ),
         Left $ ErrorRewriteExprForce $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
       ),
-      ( rewriteStmt (M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeNone] TypeNone) $
-          StmtVoid $
-            ExprForce (Just 0) $
-              ExprVar "x",
+      ( ( M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeNone] TypeNone,
+          StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
+        ),
         Left $ ErrorRewriteExprForce $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
       )
     ]
