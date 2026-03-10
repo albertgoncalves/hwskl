@@ -268,9 +268,8 @@ stmtToType (StmtReturn (Just expr)) = do
   exprType <- exprToType expr
   modify $ \typeChecker ->
     typeChecker {typeCheckerReturnTypes = exprType : typeCheckerReturnTypes typeChecker}
-stmtToType (StmtReturn Nothing) = do
-  modify $ \typeChecker ->
-    typeChecker {typeCheckerReturnTypes = TypeNone : typeCheckerReturnTypes typeChecker}
+stmtToType (StmtReturn Nothing) = modify $ \typeChecker ->
+  typeChecker {typeCheckerReturnTypes = TypeNone : typeCheckerReturnTypes typeChecker}
 
 testStmtToType :: [Test]
 testStmtToType =
