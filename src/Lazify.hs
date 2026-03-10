@@ -197,7 +197,7 @@ argToType arg = do
 {- % -}
 
 exprToType :: Expr -> StateT TypeChecker (Either Error) Type
-exprToType (ExprInt _) = return TypeInt
+exprToType (ExprInt {}) = return TypeInt
 exprToType expr@(ExprVar var) = do
   bindings <- gets typeCheckerBindings
   funcStack <- gets typeCheckerFuncStack
@@ -404,7 +404,7 @@ rewriteExpr _ expr@(ExprLazy {}) = Right expr
 rewriteExprForce :: Type -> Type -> Expr -> Either Error Expr
 rewriteExprForce exprType (TypeLazy childType) expr =
   rewriteExprForce exprType childType $ ExprForce Nothing expr
-rewriteExprForce _ (TypeK _) expr = Left $ ErrorRewriteExprForce expr
+rewriteExprForce _ (TypeK {}) expr = Left $ ErrorRewriteExprForce expr
 rewriteExprForce _ TypeNone expr = Left $ ErrorRewriteExprForce expr
 rewriteExprForce expectedType givenType expr
   | expectedType /= givenType = Left $ ErrorRewriteExprForce expr
