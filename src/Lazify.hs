@@ -275,25 +275,26 @@ stmtToType (StmtReturn Nothing) = do
 testStmtToType :: [Test]
 testStmtToType =
   map
-    (uncurry (~?=) . first (`execStateT` newTypeChecker))
-    [ ( stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+    (uncurry (~?=) . first ((`execStateT` newTypeChecker) . stmtToType))
+    [ (StmtFunc "f" [] [StmtReturn $ Just $ ExprVar "x"], Left $ ErrorExprToType $ ExprVar "x"),
+      ( StmtFunc "f" ["x"] [StmtReturn $ Just $ ExprVar "x"],
         Right $
           newTypeChecker
             { typeCheckerK = 2,
               typeCheckerBindings =
                 M.union
-                  (M.fromList [(["add"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "add"], TypeK 0)])
+                  (M.fromList [(["f"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "f"], TypeK 0)])
                   $ typeCheckerBindings newTypeChecker,
               typeCheckerPairs = [(TypeK 1, TypeK 0)]
             }
       ),
-      ( stmtToType $ StmtFunc "add" ["x"] [StmtReturn $ Just $ ExprForce (Just 0) $ ExprVar "x"],
+      ( StmtFunc "f" ["x"] [StmtReturn $ Just $ ExprForce (Just 0) $ ExprVar "x"],
         Right $
           newTypeChecker
             { typeCheckerK = 3,
               typeCheckerBindings =
                 M.union
-                  (M.fromList [(["add"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "add"], TypeK 0)])
+                  (M.fromList [(["f"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "f"], TypeK 0)])
                   $ typeCheckerBindings newTypeChecker,
               typeCheckerForces = M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 2,
               typeCheckerPairs = [(TypeK 1, TypeK 2)]
