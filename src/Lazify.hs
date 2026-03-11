@@ -474,8 +474,10 @@ main = do
       TestList $
         concat
           [testExprToLazy, testStmtToLazy, testStmtToType, testUnify, testDeref, testRewriteStmt]
-  either print (putStr . show) $
-    lazify $
+  putStr $ show stmt
+  either print (putStr . show) $ lazify stmt
+  where
+    stmt =
       StmtFunc
         "main"
         []
@@ -495,8 +497,9 @@ main = do
             "lazy_add_1"
             ["x"]
             [StmtReturn $ Just $ ExprCall (ExprVar "add_1") [ExprVar "x", ExprInt 1]],
-          StmtDecl "x" $ ExprCall (ExprVar "lazy_add_0") [ExprInt (-2)],
-          StmtDecl "y" $ ExprCall (ExprVar "lazy_add_1") [ExprVar "x"],
+          StmtDecl "x" $
+            ExprCall (ExprVar "lazy_add_1") [ExprCall (ExprVar "lazy_add_0") [ExprInt (-2)]],
+          StmtDecl "y" $ ExprVar "x",
           StmtVoid $ ExprCall (ExprVar "print") [ExprInt 1],
           StmtVoid $ ExprCall (ExprVar "print") [ExprVar "x"],
           StmtVoid $ ExprCall (ExprVar "print") [ExprVar "y"],
