@@ -55,7 +55,15 @@ showStmt :: Int -> Stmt -> String
 showStmt k (StmtDecl var expr) = indent k ++ var ++ " = " ++ show expr ++ "\n"
 showStmt k (StmtFunc var args stmts) =
   concat
-    [indent k, "def ", var, "(", intercalate ", " args, "):\n", concatMap (showStmt $ k + 1) stmts]
+    [ indent k,
+      "def ",
+      var,
+      "(",
+      intercalate ", " args,
+      "):\n",
+      concatMap (showStmt $ k + 1) stmts,
+      "\n"
+    ]
 showStmt k (StmtVoid expr) = indent k ++ show expr ++ "\n"
 showStmt k (StmtReturn (Just expr)) = indent k ++ "return " ++ show expr ++ "\n"
 showStmt k (StmtReturn Nothing) = indent k ++ "return\n"
@@ -466,7 +474,7 @@ main = do
       TestList $
         concat
           [testExprToLazy, testStmtToLazy, testStmtToType, testUnify, testDeref, testRewriteStmt]
-  either print print $
+  either print (putStr . show) $
     lazify $
       StmtFunc
         "main"
