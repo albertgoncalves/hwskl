@@ -11,6 +11,7 @@ import Control.Monad.Trans.State.Lazy
     gets,
     modify,
     put,
+    runState,
   )
 import Data.Bifunctor (first)
 import Data.List (intercalate)
@@ -378,36 +379,39 @@ deref parentType@(TypeK parentK) = do
     Nothing -> return parentType
 deref (TypeFunc argTypes returnType) = TypeFunc <$> mapM deref argTypes <*> deref returnType
 deref (TypeLazy childType) = TypeLazy <$> deref childType
-deref parentType = return parentType
+deref TypeInt = return TypeInt
+deref TypeNone = return TypeNone
 
 testDeref :: [Test]
 testDeref =
   map
-    (uncurry (~?=) . first (uncurry evalState))
-    [ ((deref $ TypeK 0, mempty), TypeK 0),
-      ((deref $ TypeK 0, M.singleton 0 TypeInt), TypeInt),
-      ((deref $ TypeK 0, M.fromList [(0, TypeK 1), (1, TypeK 0)]), TypeK 0),
-      ( (deref $ TypeK 0, M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 0),
-        TypeFunc [TypeK 0] $ TypeK 0
-      ),
-      ( (deref $ TypeK 0, M.fromList [(0, TypeFunc [TypeK 1] $ TypeK 1), (1, TypeK 0)]),
+    (uncurry (~?=) . first (uncurry evalState . first deref))
+    [ ((TypeK 0, mempty), TypeK 0),
+      ((TypeK 0, M.singleton 0 TypeInt), TypeInt),
+      ((TypeK 0, M.fromList [(0, TypeK 1), (1, TypeK 0)]), TypeK 0),
+      ((TypeK 0, M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 0), TypeFunc [TypeK 0] $ TypeK 0),
+      ( (TypeK 0, M.fromList [(0, TypeFunc [TypeK 1] $ TypeK 1), (1, TypeK 0)]),
         TypeFunc [TypeK 0] $ TypeK 0
       )
     ]
 
 {- % -}
 
-rewriteExpr :: M.Map Int Type -> Expr -> Either Error Expr
+rewriteExpr :: M.Map Int Type -> Expr -> StateT (M.Map Int Type) (Either Error) Expr
 rewriteExpr forces parentExpr@(ExprForce (Just k) childExpr) =
   case M.lookup k forces of
-    Just (TypeFunc [argType] returnType) -> rewriteExprForce returnType argType childExpr
-    _ -> Left $ ErrorRewriteExpr parentExpr
-rewriteExpr _ expr@(ExprForce Nothing _) = Left $ ErrorRewriteExpr expr
+    Just (TypeFunc [argType0] returnType0) -> do
+      (returnType1, (argType1, types)) <-
+        (runState (deref argType0) <$>) . runState (deref returnType0) <$> get
+      put types
+      lift $ rewriteExprForce returnType1 argType1 childExpr
+    _ -> lift $ Left $ ErrorRewriteExpr parentExpr
+rewriteExpr _ expr@(ExprForce Nothing _) = lift $ Left $ ErrorRewriteExpr expr
 rewriteExpr forces (ExprCall func args) =
   ExprCall <$> rewriteExpr forces func <*> mapM (rewriteExpr forces) args
-rewriteExpr _ expr@(ExprInt {}) = Right expr
-rewriteExpr _ expr@(ExprVar {}) = Right expr
-rewriteExpr _ expr@(ExprLazy {}) = Right expr
+rewriteExpr _ expr@(ExprInt {}) = return expr
+rewriteExpr _ expr@(ExprVar {}) = return expr
+rewriteExpr _ expr@(ExprLazy {}) = return expr
 
 rewriteExprForce :: Type -> Type -> Expr -> Either Error Expr
 rewriteExprForce exprType (TypeLazy childType) expr =
@@ -418,13 +422,13 @@ rewriteExprForce expectedType givenType expr
   | expectedType /= givenType = Left $ ErrorRewriteExprForce expr
   | otherwise = Right expr
 
-rewriteStmt :: M.Map Int Type -> Stmt -> Either Error Stmt
+rewriteStmt :: M.Map Int Type -> Stmt -> StateT (M.Map Int Type) (Either Error) Stmt
 rewriteStmt = mapStmt . rewriteExpr
 
 testRewriteStmt :: [Test]
 testRewriteStmt =
   map
-    (uncurry (~?=) . first (uncurry rewriteStmt))
+    (uncurry (~?=) . first ((`evalStateT` mempty) . uncurry rewriteStmt))
     [ ( (mempty, StmtVoid $ ExprForce (Just 0) $ ExprVar "x"),
         Left $ ErrorRewriteExpr $ ExprForce (Just 0) $ ExprVar "x"
       ),
@@ -463,9 +467,7 @@ lazify stmt = do
   lazyStmt <- evalStateT (stmtToLazy stmt) 0
   typeChecker <- execStateT (stmtToType lazyStmt) newTypeChecker
   types <- execStateT (unify $ typeCheckerPairs typeChecker) mempty
-  rewriteStmt
-    (M.fromList $ evalState (mapM (mapM deref) $ M.toList $ typeCheckerForces typeChecker) types)
-    lazyStmt
+  evalStateT (rewriteStmt (typeCheckerForces typeChecker) lazyStmt) types
 
 main :: IO ()
 main = do
