@@ -104,6 +104,7 @@ data Error
   | ErrorRewriteExprForce Expr
   | ErrorStmtToType Stmt
   | ErrorUnify1 Type Type
+  | ErrorLazify
   deriving (Eq, Show)
 
 {- % -}
@@ -130,7 +131,8 @@ exprToLazy expr@(ExprInt {}) = return expr
 exprToLazy expr@(ExprVar {}) = return expr
 exprToLazy (ExprCall func@(ExprVar var) args)
   | var `M.member` intrinsics = ExprCall func <$> mapM (exprToForce <=< exprToLazy) args
-exprToLazy (ExprCall func args) = ExprLazy <$> exprToLazy func <*> mapM exprToLazy args
+-- TODO: This isn't the behavior we want. Nested calls are no longer lazy!
+exprToLazy (ExprCall func args) = ExprLazy func <$> mapM exprToLazy args
 exprToLazy expr@(ExprLazy {}) = lift $ Left $ ErrorExprToLazy expr
 exprToLazy expr@(ExprForce {}) = lift $ Left $ ErrorExprToLazy expr
 
@@ -249,7 +251,8 @@ stmtToType stmt@(StmtDecl var expr) = do
     Just _ -> lift $ Left $ ErrorStmtToType stmt
     Nothing -> return ()
   pushBinding var exprType
-stmtToType (StmtFunc var args stmts) = do
+stmtToType stmt@(StmtFunc var args stmts) = do
+  parentBindings <- gets typeCheckerBindings
   parentFuncStack <- gets typeCheckerFuncStack
   parentReturnTypes <- gets typeCheckerReturnTypes
 
@@ -268,6 +271,11 @@ stmtToType (StmtFunc var args stmts) = do
         typeCheckerPairs =
           map (returnType,) (typeCheckerReturnTypes typeChecker) ++ typeCheckerPairs typeChecker
       }
+
+  _ <- case M.lookup (var : parentFuncStack) parentBindings of
+    Just _ -> lift $ Left $ ErrorStmtToType stmt
+    Nothing -> return ()
+
   pushBinding var (TypeFunc argTypes returnType)
 stmtToType (StmtVoid expr) = do
   exprType <- exprToType expr
@@ -466,8 +474,72 @@ lazify :: Stmt -> Either Error Stmt
 lazify stmt = do
   lazyStmt <- evalStateT (stmtToLazy stmt) 0
   typeChecker <- execStateT (stmtToType lazyStmt) newTypeChecker
-  types <- execStateT (unify $ typeCheckerPairs typeChecker) mempty
+  pair <- case M.lookup ["main"] $ typeCheckerBindings typeChecker of
+    Just mainType -> return (mainType, TypeFunc [] TypeNone)
+    Nothing -> Left ErrorLazify
+  types <- execStateT (unify (pair : typeCheckerPairs typeChecker)) mempty
   evalStateT (rewriteStmt (typeCheckerForces typeChecker) lazyStmt) types
+
+testLazify :: [Test]
+testLazify =
+  map
+    (uncurry (~?=) . first lazify)
+    [ (StmtDecl "y" $ ExprVar "x", Left $ ErrorExprToType $ ExprVar "x"),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc "f" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+            StmtDecl "y" $ ExprCall (ExprVar "f") [ExprInt 1]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc "f" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+              StmtDecl "y" $ ExprLazy (ExprVar "f") [ExprInt 1]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+            StmtFunc "f1" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+            StmtDecl "y" $ ExprCall (ExprVar "f0") [ExprVar "f1"],
+            StmtReturn Nothing
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+              StmtFunc "f1" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+              StmtDecl "y" $ ExprLazy (ExprVar "f0") [ExprVar "f1"],
+              StmtReturn Nothing
+            ]
+      ),
+      (StmtFunc "main" [] [StmtReturn $ Just $ ExprInt 0], Left $ ErrorUnify1 TypeInt TypeNone),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+            StmtFunc "f1" [] [StmtReturn $ Just $ ExprVar "f0"],
+            StmtFunc "f2" [] [StmtReturn $ Just $ ExprVar "f1"],
+            StmtDecl "y" $ ExprCall (ExprCall (ExprCall (ExprVar "f2") []) []) [ExprInt 1],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprVar "y"]
+          ],
+        -- TODO: This isn't the behavior we want. Nested calls are no longer lazy!
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+              StmtFunc "f1" [] [StmtReturn $ Just $ ExprVar "f0"],
+              StmtFunc "f2" [] [StmtReturn $ Just $ ExprVar "f1"],
+              StmtDecl "y" $ ExprLazy (ExprCall (ExprCall (ExprVar "f2") []) []) [ExprInt 1],
+              StmtVoid $ ExprCall (ExprVar "print") [ExprForce Nothing $ ExprVar "y"]
+            ]
+      )
+    ]
 
 main :: IO ()
 main = do
@@ -475,7 +547,14 @@ main = do
     runTestTT $
       TestList $
         concat
-          [testExprToLazy, testStmtToLazy, testStmtToType, testUnify, testDeref, testRewriteStmt]
+          [ testExprToLazy,
+            testStmtToLazy,
+            testStmtToType,
+            testUnify,
+            testDeref,
+            testRewriteStmt,
+            testLazify
+          ]
   putStr $ show stmt
   either print (putStr . show) $ lazify stmt
   where
