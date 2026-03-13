@@ -24,7 +24,7 @@ data Expr
   = ExprInt Int
   | ExprVar String
   | ExprCall Expr [Expr]
-  | ExprLazy Expr [Expr]
+  | ExprLazy Expr
   | ExprForce (Maybe Int) Expr
   deriving (Eq)
 
@@ -33,7 +33,7 @@ instance Show Expr where
   show (ExprVar var) = var
   show (ExprCall (ExprVar "+") [left, right]) = "(" ++ show left ++ " + " ++ show right ++ ")"
   show (ExprCall func args) = show func ++ "(" ++ intercalate ", " (map show args) ++ ")"
-  show (ExprLazy func args) = "Lazy(" ++ intercalate ", " (map show $ func : args) ++ ")"
+  show (ExprLazy expr) = "Lazy(lambda: " ++ show expr ++ ")"
   show (ExprForce (Just k) arg) = "__?_" ++ show k ++ "__(" ++ show arg ++ ")"
   show (ExprForce Nothing arg) = "__force__(" ++ show arg ++ ")"
 
@@ -131,8 +131,7 @@ exprToLazy expr@(ExprInt {}) = return expr
 exprToLazy expr@(ExprVar {}) = return expr
 exprToLazy (ExprCall func@(ExprVar var) args)
   | var `M.member` intrinsics = ExprCall func <$> mapM (exprToForce <=< exprToLazy) args
--- TODO: This isn't the behavior we want. Nested calls are no longer lazy!
-exprToLazy (ExprCall func args) = ExprLazy func <$> mapM exprToLazy args
+exprToLazy expr@(ExprCall {}) = return $ ExprLazy expr
 exprToLazy expr@(ExprLazy {}) = lift $ Left $ ErrorExprToLazy expr
 exprToLazy expr@(ExprForce {}) = lift $ Left $ ErrorExprToLazy expr
 
@@ -148,12 +147,12 @@ testExprToLazy =
   map
     (uncurry (~?=) . first ((`evalStateT` 0) . exprToLazy))
     [ ( ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
-        Right $ ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"]
+        Right $ ExprLazy $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"]
       ),
       ( ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]],
         Right $
-          ExprLazy (ExprVar "f") $
-            ExprVar "x" : [ExprLazy (ExprVar "f") $ map ExprVar ["y", "z"]]
+          ExprLazy $
+            ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]]
       ),
       ( ExprCall (ExprVar "print") [ExprInt 1],
         Right $ ExprCall (ExprVar "print") [ExprInt 1]
@@ -162,7 +161,7 @@ testExprToLazy =
         Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprVar "x"]
       ),
       ( ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []],
-        Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprLazy (ExprVar "f") []]
+        Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprLazy $ ExprCall (ExprVar "f") []]
       )
     ]
 
@@ -177,7 +176,7 @@ testStmtToLazy =
     (uncurry (~?=) . first ((`evalStateT` 0) . stmtToLazy))
     [ (StmtDecl "x" $ ExprInt 0, Right $ StmtDecl "x" $ ExprInt 0),
       ( StmtDecl "z" $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
-        Right $ StmtDecl "z" $ ExprLazy (ExprVar "f") $ map ExprVar ["x", "y"]
+        Right $ StmtDecl "z" $ ExprLazy $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"]
       )
     ]
 
@@ -222,7 +221,7 @@ exprToType (ExprCall func args) = do
       { typeCheckerPairs = (funcType, TypeFunc argTypes returnType) : typeCheckerPairs typeChecker
       }
   return returnType
-exprToType (ExprLazy func args) = TypeLazy <$> exprToType (ExprCall func args)
+exprToType (ExprLazy expr) = TypeLazy <$> exprToType expr
 exprToType (ExprForce (Just k) arg) = do
   argType <- exprToType arg
   returnType <- nextTypeK
@@ -496,7 +495,7 @@ testLazify =
             "main"
             []
             [ StmtFunc "f" ["x"] [StmtReturn $ Just $ ExprVar "x"],
-              StmtDecl "y" $ ExprLazy (ExprVar "f") [ExprInt 1]
+              StmtDecl "y" $ ExprLazy $ ExprCall (ExprVar "f") [ExprInt 1]
             ]
       ),
       ( StmtFunc
@@ -513,7 +512,7 @@ testLazify =
             []
             [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
               StmtFunc "f1" ["x"] [StmtReturn $ Just $ ExprVar "x"],
-              StmtDecl "y" $ ExprLazy (ExprVar "f0") [ExprVar "f1"],
+              StmtDecl "y" $ ExprLazy $ ExprCall (ExprVar "f0") [ExprVar "f1"],
               StmtReturn Nothing
             ]
       ),
@@ -527,7 +526,6 @@ testLazify =
             StmtDecl "y" $ ExprCall (ExprCall (ExprCall (ExprVar "f2") []) []) [ExprInt 1],
             StmtVoid $ ExprCall (ExprVar "print") [ExprVar "y"]
           ],
-        -- TODO: This isn't the behavior we want. Nested calls are no longer lazy!
         Right $
           StmtFunc
             "main"
@@ -535,7 +533,9 @@ testLazify =
             [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
               StmtFunc "f1" [] [StmtReturn $ Just $ ExprVar "f0"],
               StmtFunc "f2" [] [StmtReturn $ Just $ ExprVar "f1"],
-              StmtDecl "y" $ ExprLazy (ExprCall (ExprCall (ExprVar "f2") []) []) [ExprInt 1],
+              StmtDecl "y" $
+                ExprLazy $
+                  ExprCall (ExprCall (ExprCall (ExprVar "f2") []) []) [ExprInt 1],
               StmtVoid $ ExprCall (ExprVar "print") [ExprForce Nothing $ ExprVar "y"]
             ]
       )
@@ -571,6 +571,10 @@ main = do
             ["x", "y"]
             [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
           StmtFunc
+            "add_2"
+            ["x", "y"]
+            [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+          StmtFunc
             "lazy_add_0"
             ["x"]
             [StmtReturn $ Just $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
@@ -578,6 +582,10 @@ main = do
             "lazy_add_1"
             ["x"]
             [StmtReturn $ Just $ ExprCall (ExprVar "add_1") [ExprVar "x", ExprInt 1]],
+          StmtFunc
+            "lazy_add_2"
+            ["x"]
+            [StmtReturn $ Just $ ExprCall (ExprVar "add_2") [ExprVar "x", ExprInt 1]],
           StmtDecl "x" $
             ExprCall (ExprVar "lazy_add_1") [ExprCall (ExprVar "lazy_add_0") [ExprInt (-2)]],
           StmtDecl "y" $ ExprVar "x",
@@ -585,6 +593,6 @@ main = do
           StmtVoid $ ExprCall (ExprVar "print") [ExprVar "x"],
           StmtVoid $ ExprCall (ExprVar "print") [ExprVar "y"],
           StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_0") [ExprInt 3]],
-          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_1") [ExprVar "x"]],
+          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_2") [ExprVar "x"]],
           StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
         ]
