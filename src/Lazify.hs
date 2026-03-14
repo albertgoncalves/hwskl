@@ -2,18 +2,15 @@ import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Lazy
-  ( State,
-    StateT,
-    evalState,
+  ( StateT,
     evalStateT,
     execStateT,
     get,
     gets,
     modify,
     put,
-    runState,
   )
-import Data.Bifunctor (first)
+import Data.Bifunctor (bimap, first)
 import Data.List (intercalate)
 import qualified Data.Map as M
 import Test.HUnit (Test (..), runTestTT, (~?=))
@@ -88,7 +85,8 @@ data Type
 
 data TypeChecker = TypeChecker
   { typeCheckerK :: Int,
-    typeCheckerBindings :: M.Map [String] Type,
+    typeCheckerFuncs :: M.Map [String] Type,
+    typeCheckerLocals :: M.Map [String] Type,
     typeCheckerForces :: M.Map Int Type,
     typeCheckerFuncStack :: [String],
     typeCheckerReturnTypes :: [Type],
@@ -114,7 +112,7 @@ intrinsics =
   M.fromList [("print", TypeFunc [TypeInt] TypeNone), ("+", TypeFunc [TypeInt, TypeInt] TypeInt)]
 
 newTypeChecker :: TypeChecker
-newTypeChecker = TypeChecker 0 (M.mapKeys (: []) intrinsics) mempty [] [] []
+newTypeChecker = TypeChecker 0 (M.mapKeys (: []) intrinsics) mempty mempty [] [] []
 
 {- % -}
 
@@ -161,7 +159,8 @@ testExprToLazy =
         Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprVar "x"]
       ),
       ( ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []],
-        Right $ ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprLazy $ ExprCall (ExprVar "f") []]
+        Right $
+          ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprLazy $ ExprCall (ExprVar "f") []]
       )
     ]
 
@@ -190,18 +189,28 @@ nextTypeK = do
   put $ typeChecker {typeCheckerK = k + 1}
   return typeK
 
-pushBinding :: (Monad m) => String -> Type -> StateT TypeChecker m ()
-pushBinding var varType = do
+pushLocal :: (Monad m) => String -> Type -> StateT TypeChecker m ()
+pushLocal var varType = do
   modify $ \typeChecker ->
     typeChecker
-      { typeCheckerBindings =
-          M.insert (var : typeCheckerFuncStack typeChecker) varType $ typeCheckerBindings typeChecker
+      { typeCheckerLocals =
+          M.insert (var : typeCheckerFuncStack typeChecker) varType $
+            typeCheckerLocals typeChecker
+      }
+
+pushFunc :: (Monad m) => String -> Type -> StateT TypeChecker m ()
+pushFunc func funcType = do
+  modify $ \typeChecker ->
+    typeChecker
+      { typeCheckerFuncs =
+          M.insert (func : typeCheckerFuncStack typeChecker) funcType $
+            typeCheckerFuncs typeChecker
       }
 
 argToType :: (Monad m) => String -> StateT TypeChecker m Type
 argToType arg = do
   argType <- nextTypeK
-  pushBinding arg argType
+  pushLocal arg argType
   return argType
 
 {- % -}
@@ -209,9 +218,11 @@ argToType arg = do
 exprToType :: Expr -> StateT TypeChecker (Either Error) Type
 exprToType (ExprInt {}) = return TypeInt
 exprToType expr@(ExprVar var) = do
-  bindings <- gets typeCheckerBindings
+  funcs <- gets typeCheckerFuncs
+  locals <- gets typeCheckerLocals
   funcStack <- gets typeCheckerFuncStack
-  maybe (lift $ Left $ ErrorExprToType expr) return $ exprToTypeLoop bindings var funcStack
+  maybe (lift $ Left $ ErrorExprToType expr) return $
+    M.lookup (var : funcStack) locals <|> exprToTypeLoop funcs var funcStack
 exprToType (ExprCall func args) = do
   funcType <- exprToType func
   argTypes <- mapM exprToType args
@@ -235,23 +246,25 @@ exprToType (ExprForce (Just k) arg) = do
 exprToType expr@(ExprForce Nothing _) = lift $ Left $ ErrorExprToType expr
 
 exprToTypeLoop :: M.Map [String] Type -> String -> [String] -> Maybe Type
-exprToTypeLoop bindings var [] = M.lookup [var] bindings
-exprToTypeLoop bindings var funcStack@(_ : rest) =
-  M.lookup (var : funcStack) bindings <|> exprToTypeLoop bindings var rest
+exprToTypeLoop funcs var [] = M.lookup [var] funcs
+exprToTypeLoop funcs var funcStack@(_ : rest) =
+  M.lookup (var : funcStack) funcs <|> exprToTypeLoop funcs var rest
 
 {- % -}
 
 stmtToType :: Stmt -> StateT TypeChecker (Either Error) ()
 stmtToType stmt@(StmtDecl var expr) = do
   exprType <- exprToType expr
-  bindings <- gets typeCheckerBindings
+  funcs <- gets typeCheckerFuncs
+  locals <- gets typeCheckerLocals
   funcStack <- gets typeCheckerFuncStack
-  _ <- case M.lookup (var : funcStack) bindings of
+  _ <- case M.lookup (var : funcStack) funcs <|> M.lookup (var : funcStack) locals of
     Just _ -> lift $ Left $ ErrorStmtToType stmt
     Nothing -> return ()
-  pushBinding var exprType
+  pushLocal var exprType
 stmtToType stmt@(StmtFunc var args stmts) = do
-  parentBindings <- gets typeCheckerBindings
+  parentFuncs <- gets typeCheckerFuncs
+  parentLocals <- gets typeCheckerLocals
   parentFuncStack <- gets typeCheckerFuncStack
   parentReturnTypes <- gets typeCheckerReturnTypes
 
@@ -271,11 +284,12 @@ stmtToType stmt@(StmtFunc var args stmts) = do
           map (returnType,) (typeCheckerReturnTypes typeChecker) ++ typeCheckerPairs typeChecker
       }
 
-  _ <- case M.lookup (var : parentFuncStack) parentBindings of
+  let lookup = M.lookup (var : parentFuncStack)
+  _ <- case lookup parentFuncs <|> lookup parentLocals of
     Just _ -> lift $ Left $ ErrorStmtToType stmt
     Nothing -> return ()
 
-  pushBinding var (TypeFunc argTypes returnType)
+  pushFunc var (TypeFunc argTypes returnType)
 stmtToType (StmtVoid expr) = do
   exprType <- exprToType expr
   modify $ \typeChecker ->
@@ -292,14 +306,22 @@ testStmtToType =
   map
     (uncurry (~?=) . first ((`execStateT` newTypeChecker) . stmtToType))
     [ (StmtFunc "f" [] [StmtReturn $ Just $ ExprVar "x"], Left $ ErrorExprToType $ ExprVar "x"),
+      ( StmtFunc
+          "main"
+          []
+          [StmtDecl "x" $ ExprInt 1, StmtFunc "f" [] [StmtReturn $ Just $ ExprVar "x"]],
+        Left $ ErrorExprToType $ ExprVar "x"
+      ),
       ( StmtFunc "f" ["x"] [StmtReturn $ Just $ ExprVar "x"],
         Right $
           newTypeChecker
             { typeCheckerK = 2,
-              typeCheckerBindings =
+              typeCheckerFuncs =
                 M.union
-                  (M.fromList [(["f"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "f"], TypeK 0)])
-                  $ typeCheckerBindings newTypeChecker,
+                  (M.singleton ["f"] $ TypeFunc [TypeK 0] $ TypeK 1)
+                  $ typeCheckerFuncs newTypeChecker,
+              typeCheckerLocals =
+                M.union (M.singleton ["x", "f"] $ TypeK 0) $ typeCheckerLocals newTypeChecker,
               typeCheckerPairs = [(TypeK 1, TypeK 0)]
             }
       ),
@@ -307,10 +329,12 @@ testStmtToType =
         Right $
           newTypeChecker
             { typeCheckerK = 3,
-              typeCheckerBindings =
+              typeCheckerFuncs =
                 M.union
-                  (M.fromList [(["f"], TypeFunc [TypeK 0] $ TypeK 1), (["x", "f"], TypeK 0)])
-                  $ typeCheckerBindings newTypeChecker,
+                  (M.singleton ["f"] $ TypeFunc [TypeK 0] $ TypeK 1)
+                  $ typeCheckerFuncs newTypeChecker,
+              typeCheckerLocals =
+                M.union (M.singleton ["x", "f"] $ TypeK 0) $ typeCheckerLocals newTypeChecker,
               typeCheckerForces = M.singleton 0 $ TypeFunc [TypeK 0] $ TypeK 2,
               typeCheckerPairs = [(TypeK 1, TypeK 2)]
             }
@@ -374,7 +398,7 @@ testUnify =
 
 {- % -}
 
-deref :: Type -> State (M.Map Int Type) Type
+deref :: (Monad m) => Type -> StateT (M.Map Int Type) m Type
 deref parentType@(TypeK parentK) = do
   types <- get
   case M.lookup parentK types of
@@ -392,7 +416,11 @@ deref TypeNone = return TypeNone
 testDeref :: [Test]
 testDeref =
   map
-    (uncurry (~?=) . first (uncurry evalState . first deref))
+    ( uncurry (~?=)
+        . bimap
+          (uncurry evalStateT . first (deref :: Type -> StateT (M.Map Int Type) (Either Error) Type))
+          Right
+    )
     [ ((TypeK 0, mempty), TypeK 0),
       ((TypeK 0, M.singleton 0 TypeInt), TypeInt),
       ((TypeK 0, M.fromList [(0, TypeK 1), (1, TypeK 0)]), TypeK 0),
@@ -408,9 +436,8 @@ rewriteExpr :: M.Map Int Type -> Expr -> StateT (M.Map Int Type) (Either Error) 
 rewriteExpr forces parentExpr@(ExprForce (Just k) childExpr) =
   case M.lookup k forces of
     Just (TypeFunc [argType0] returnType0) -> do
-      (returnType1, (argType1, types)) <-
-        (runState (deref argType0) <$>) . runState (deref returnType0) <$> get
-      put types
+      argType1 <- deref argType0
+      returnType1 <- deref returnType0
       lift $ rewriteExprForce returnType1 argType1 childExpr
     _ -> lift $ Left $ ErrorRewriteExpr parentExpr
 rewriteExpr _ expr@(ExprForce Nothing _) = lift $ Left $ ErrorRewriteExpr expr
@@ -473,7 +500,7 @@ lazify :: Stmt -> Either Error Stmt
 lazify stmt = do
   lazyStmt <- evalStateT (stmtToLazy stmt) 0
   typeChecker <- execStateT (stmtToType lazyStmt) newTypeChecker
-  pair <- case M.lookup ["main"] $ typeCheckerBindings typeChecker of
+  pair <- case M.lookup ["main"] $ typeCheckerFuncs typeChecker of
     Just mainType -> return (mainType, TypeFunc [] TypeNone)
     Nothing -> Left ErrorLazify
   types <- execStateT (unify (pair : typeCheckerPairs typeChecker)) mempty
