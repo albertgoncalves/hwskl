@@ -99,7 +99,6 @@ data Error
   | ErrorExprToForce Expr
   | ErrorExprToType Expr
   | ErrorRewriteExpr Expr
-  | ErrorRewriteExprForce Expr
   | ErrorStmtToType Stmt
   | ErrorUnify1 Type Type
   | ErrorLazify
@@ -129,7 +128,8 @@ exprToLazy expr@(ExprInt {}) = return expr
 exprToLazy expr@(ExprVar {}) = return expr
 exprToLazy (ExprCall func@(ExprVar var) args)
   | var `M.member` intrinsics = ExprCall func <$> mapM (exprToForce <=< exprToLazy) args
-exprToLazy expr@(ExprCall {}) = return $ ExprLazy expr
+exprToLazy (ExprCall func args) =
+  (ExprLazy .) . ExprCall <$> (exprToForce <=< exprToLazy) func <*> mapM exprToLazy args
 exprToLazy expr@(ExprLazy {}) = lift $ Left $ ErrorExprToLazy expr
 exprToLazy expr@(ExprForce {}) = lift $ Left $ ErrorExprToLazy expr
 
@@ -145,12 +145,16 @@ testExprToLazy =
   map
     (uncurry (~?=) . first ((`evalStateT` 0) . exprToLazy))
     [ ( ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
-        Right $ ExprLazy $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"]
+        Right $ ExprLazy $ ExprCall (ExprForce (Just 0) $ ExprVar "f") $ map ExprVar ["x", "y"]
       ),
       ( ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]],
         Right $
           ExprLazy $
-            ExprCall (ExprVar "f") [ExprVar "x", ExprCall (ExprVar "f") $ map ExprVar ["y", "z"]]
+            ExprCall
+              (ExprForce (Just 0) $ ExprVar "f")
+              [ ExprVar "x",
+                ExprLazy $ ExprCall (ExprForce (Just 1) $ ExprVar "f") $ map ExprVar ["y", "z"]
+              ]
       ),
       ( ExprCall (ExprVar "print") [ExprInt 1],
         Right $ ExprCall (ExprVar "print") [ExprInt 1]
@@ -160,7 +164,9 @@ testExprToLazy =
       ),
       ( ExprCall (ExprVar "print") [ExprCall (ExprVar "f") []],
         Right $
-          ExprCall (ExprVar "print") [ExprForce (Just 0) $ ExprLazy $ ExprCall (ExprVar "f") []]
+          ExprCall
+            (ExprVar "print")
+            [ExprForce (Just 1) $ ExprLazy $ ExprCall (ExprForce (Just 0) $ ExprVar "f") []]
       )
     ]
 
@@ -175,7 +181,11 @@ testStmtToLazy =
     (uncurry (~?=) . first ((`evalStateT` 0) . stmtToLazy))
     [ (StmtDecl "x" $ ExprInt 0, Right $ StmtDecl "x" $ ExprInt 0),
       ( StmtDecl "z" $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"],
-        Right $ StmtDecl "z" $ ExprLazy $ ExprCall (ExprVar "f") $ map ExprVar ["x", "y"]
+        Right $
+          StmtDecl "z" $
+            ExprLazy $
+              ExprCall (ExprForce (Just 0) $ ExprVar "f") $
+                map ExprVar ["x", "y"]
       )
     ]
 
@@ -194,8 +204,7 @@ pushLocal var varType = do
   modify $ \typeChecker ->
     typeChecker
       { typeCheckerLocals =
-          M.insert (var : typeCheckerFuncStack typeChecker) varType $
-            typeCheckerLocals typeChecker
+          M.insert (var : typeCheckerFuncStack typeChecker) varType $ typeCheckerLocals typeChecker
       }
 
 pushFunc :: (Monad m) => String -> Type -> StateT TypeChecker m ()
@@ -203,8 +212,7 @@ pushFunc func funcType = do
   modify $ \typeChecker ->
     typeChecker
       { typeCheckerFuncs =
-          M.insert (func : typeCheckerFuncStack typeChecker) funcType $
-            typeCheckerFuncs typeChecker
+          M.insert (func : typeCheckerFuncStack typeChecker) funcType $ typeCheckerFuncs typeChecker
       }
 
 argToType :: (Monad m) => String -> StateT TypeChecker m Type
@@ -258,7 +266,8 @@ stmtToType stmt@(StmtDecl var expr) = do
   funcs <- gets typeCheckerFuncs
   locals <- gets typeCheckerLocals
   funcStack <- gets typeCheckerFuncStack
-  _ <- case M.lookup (var : funcStack) funcs <|> M.lookup (var : funcStack) locals of
+  let lookup0 = M.lookup $ var : funcStack
+  _ <- case lookup0 funcs <|> lookup0 locals of
     Just _ -> lift $ Left $ ErrorStmtToType stmt
     Nothing -> return ()
   pushLocal var exprType
@@ -284,8 +293,8 @@ stmtToType stmt@(StmtFunc var args stmts) = do
           map (returnType,) (typeCheckerReturnTypes typeChecker) ++ typeCheckerPairs typeChecker
       }
 
-  let lookup = M.lookup (var : parentFuncStack)
-  _ <- case lookup parentFuncs <|> lookup parentLocals of
+  let lookup1 = M.lookup $ var : parentFuncStack
+  _ <- case lookup1 parentFuncs <|> lookup1 parentLocals of
     Just _ -> lift $ Left $ ErrorStmtToType stmt
     Nothing -> return ()
 
@@ -433,28 +442,27 @@ testDeref =
 {- % -}
 
 rewriteExpr :: M.Map Int Type -> Expr -> StateT (M.Map Int Type) (Either Error) Expr
-rewriteExpr forces parentExpr@(ExprForce (Just k) childExpr) =
+rewriteExpr forces parentExpr@(ExprForce (Just k) childExpr0) =
   case M.lookup k forces of
     Just (TypeFunc [argType0] returnType0) -> do
       argType1 <- deref argType0
       returnType1 <- deref returnType0
-      lift $ rewriteExprForce returnType1 argType1 childExpr
+      childExpr1 <- rewriteExpr forces childExpr0
+      rewriteExprForce returnType1 argType1 childExpr1
     _ -> lift $ Left $ ErrorRewriteExpr parentExpr
 rewriteExpr _ expr@(ExprForce Nothing _) = lift $ Left $ ErrorRewriteExpr expr
 rewriteExpr forces (ExprCall func args) =
   ExprCall <$> rewriteExpr forces func <*> mapM (rewriteExpr forces) args
 rewriteExpr _ expr@(ExprInt {}) = return expr
 rewriteExpr _ expr@(ExprVar {}) = return expr
-rewriteExpr _ expr@(ExprLazy {}) = return expr
+rewriteExpr forces (ExprLazy expr) = ExprLazy <$> rewriteExpr forces expr
 
-rewriteExprForce :: Type -> Type -> Expr -> Either Error Expr
-rewriteExprForce exprType (TypeLazy childType) expr =
-  rewriteExprForce exprType childType $ ExprForce Nothing expr
-rewriteExprForce _ (TypeK {}) expr = Left $ ErrorRewriteExprForce expr
-rewriteExprForce _ TypeNone expr = Left $ ErrorRewriteExprForce expr
-rewriteExprForce expectedType givenType expr
-  | expectedType /= givenType = Left $ ErrorRewriteExprForce expr
-  | otherwise = Right expr
+rewriteExprForce :: Type -> Type -> Expr -> StateT (M.Map Int Type) (Either Error) Expr
+rewriteExprForce expectedType (TypeLazy givenType) expr =
+  rewriteExprForce expectedType givenType $ ExprForce Nothing expr
+rewriteExprForce expectedType givenType expr = do
+  unify [(expectedType, givenType)]
+  return expr
 
 rewriteStmt :: M.Map Int Type -> Stmt -> StateT (M.Map Int Type) (Either Error) Stmt
 rewriteStmt = mapStmt . rewriteExpr
@@ -472,10 +480,13 @@ testRewriteStmt =
       ( (M.singleton 0 $ TypeFunc [TypeInt] TypeInt, StmtVoid $ ExprForce (Just 0) $ ExprVar "x"),
         Right $ StmtVoid $ ExprVar "x"
       ),
+      ( (M.singleton 0 $ TypeFunc [TypeInt] TypeNone, StmtVoid $ ExprForce (Just 0) $ ExprVar "x"),
+        Left $ ErrorUnify1 TypeNone TypeInt
+      ),
       ( ( M.singleton 0 $ TypeFunc [TypeInt] $ TypeFunc [] TypeInt,
           StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
         ),
-        Left $ ErrorRewriteExprForce $ ExprVar "x"
+        Left $ ErrorUnify1 (TypeFunc [] TypeInt) TypeInt
       ),
       ( ( M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeInt] TypeInt,
           StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
@@ -485,12 +496,12 @@ testRewriteStmt =
       ( ( M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy $ TypeK 0] $ TypeK 0,
           StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
         ),
-        Left $ ErrorRewriteExprForce $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
+        Right $ StmtVoid $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
       ),
-      ( ( M.singleton 0 $ TypeFunc [TypeLazy $ TypeLazy TypeNone] TypeNone,
+      ( ( M.singleton 0 $ TypeFunc [TypeLazy TypeNone] TypeNone,
           StmtVoid $ ExprForce (Just 0) $ ExprVar "x"
         ),
-        Left $ ErrorRewriteExprForce $ ExprForce Nothing $ ExprForce Nothing $ ExprVar "x"
+        Right $ StmtVoid $ ExprForce Nothing $ ExprVar "x"
       )
     ]
 
@@ -562,8 +573,68 @@ testLazify =
               StmtFunc "f2" [] [StmtReturn $ Just $ ExprVar "f1"],
               StmtDecl "y" $
                 ExprLazy $
-                  ExprCall (ExprCall (ExprCall (ExprVar "f2") []) []) [ExprInt 1],
+                  ExprCall
+                    ( ExprForce Nothing $
+                        ExprLazy $
+                          ExprCall (ExprForce Nothing $ ExprLazy $ ExprCall (ExprVar "f2") []) []
+                    )
+                    [ExprInt 1],
               StmtVoid $ ExprCall (ExprVar "print") [ExprForce Nothing $ ExprVar "y"]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc "f0" [] [StmtReturn $ Just $ ExprInt 1],
+            StmtFunc "f1" [] [StmtReturn $ Just $ ExprVar "f0"],
+            StmtDecl "x0" $ ExprCall (ExprVar "f1") [],
+            StmtDecl "x1" $ ExprCall (ExprVar "x0") [],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprVar "x1"]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc "f0" [] [StmtReturn $ Just $ ExprInt 1],
+              StmtFunc "f1" [] [StmtReturn $ Just $ ExprVar "f0"],
+              StmtDecl "x0" $ ExprLazy $ ExprCall (ExprVar "f1") [],
+              StmtDecl "x1" $ ExprLazy $ ExprCall (ExprForce Nothing $ ExprVar "x0") [],
+              StmtVoid $ ExprCall (ExprVar "print") [ExprForce Nothing $ ExprVar "x1"]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+            StmtFunc
+              "lazy_add_0"
+              ["x"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_0") [ExprInt 3]]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc
+                "add_0"
+                ["x", "y"]
+                [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+              StmtFunc
+                "lazy_add_0"
+                ["x"]
+                [StmtReturn $ Just $ ExprLazy $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ ExprForce Nothing $
+                      ExprForce Nothing $
+                        ExprLazy $
+                          ExprCall (ExprVar "lazy_add_0") [ExprInt 3]
+                  ]
             ]
       )
     ]
