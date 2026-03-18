@@ -1170,7 +1170,11 @@ testLazify =
               StmtFunc
                 "lazy_add_0"
                 ["x"]
-                [StmtReturn $ Just $ ExprLazy $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+                [ StmtReturn $
+                    Just $
+                      ExprLazy $
+                        ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]
+                ],
               StmtVoid $
                 ExprCall
                   (ExprVar "print")
@@ -1237,7 +1241,11 @@ testLazify =
               StmtVoid $
                 ExprCall
                   (ExprVar "print")
-                  [ExprForce Nothing $ ExprForce Nothing $ ExprLazy $ ExprCall (ExprVar "lazy_add_0") [ExprInt 3]],
+                  [ ExprForce Nothing $
+                      ExprForce Nothing $
+                        ExprLazy $
+                          ExprCall (ExprVar "lazy_add_0") [ExprInt 3]
+                  ],
               StmtVoid $
                 ExprCall
                   (ExprVar "print")
