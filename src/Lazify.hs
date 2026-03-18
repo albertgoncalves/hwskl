@@ -195,6 +195,94 @@ testStmtToLazy =
               "add_0"
               ["x", "y"]
               [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc
+                "add_0"
+                ["x", "y"]
+                [ StmtReturn $
+                    Just $
+                      ExprCall
+                        (ExprVar "+")
+                        [ExprForce (Just 0) $ ExprVar "x", ExprForce (Just 1) $ ExprVar "y"]
+                ],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ ExprForce (Just 3) $
+                      ExprLazy $
+                        ExprCall (ExprForce (Just 2) $ ExprVar "add_0") $
+                          map ExprInt [4, 5]
+                  ]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+            StmtFunc
+              "lazy_add_0"
+              ["x"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_0") [ExprInt 3]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc
+                "add_0"
+                ["x", "y"]
+                [ StmtReturn $
+                    Just $
+                      ExprCall
+                        (ExprVar "+")
+                        [ ExprForce (Just 0) $ ExprVar "x",
+                          ExprForce (Just 1) $ ExprVar "y"
+                        ]
+                ],
+              StmtFunc
+                "lazy_add_0"
+                ["x"]
+                [ StmtReturn $
+                    Just $
+                      ExprLazy $
+                        ExprCall (ExprForce (Just 2) $ ExprVar "add_0") [ExprVar "x", ExprInt 1]
+                ],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ ExprForce
+                      (Just 4)
+                      $ ExprLazy
+                      $ ExprCall (ExprForce (Just 3) $ ExprVar "lazy_add_0") [ExprInt 3]
+                  ],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ ExprForce
+                      (Just 6)
+                      $ ExprLazy
+                      $ ExprCall (ExprForce (Just 5) $ ExprVar "add_0")
+                      $ map ExprInt [4, 5]
+                  ]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
             StmtFunc
               "lazy_add_0"
               ["x"]
@@ -504,6 +592,259 @@ testStmtToType =
                   (TypeK 2, TypeK 1)
                 ]
             }
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [ StmtReturn $
+                  Just $
+                    ExprCall
+                      (ExprVar "+")
+                      [ExprForce (Just 0) $ ExprVar "x", ExprForce (Just 1) $ ExprVar "y"]
+              ],
+            StmtVoid $
+              ExprCall
+                (ExprVar "print")
+                [ ExprForce (Just 3) $
+                    ExprLazy $
+                      ExprCall (ExprForce (Just 2) $ ExprVar "add_0") $
+                        map ExprInt [4, 5]
+                ]
+          ],
+        Right $
+          newTypeChecker
+            { typeCheckerK = 11,
+              typeCheckerFuncs =
+                M.union
+                  ( M.fromList
+                      [ (["add_0", "main"], TypeFunc [TypeK 1, TypeK 2] (TypeK 3)),
+                        (["main"], TypeFunc [] (TypeK 0))
+                      ]
+                  )
+                  $ typeCheckerFuncs newTypeChecker,
+              typeCheckerLocals =
+                M.fromList
+                  [ (["x", "add_0", "main"], TypeK 1),
+                    (["y", "add_0", "main"], TypeK 2)
+                  ],
+              typeCheckerForces =
+                M.fromList
+                  [ (0, TypeFunc [TypeK 1] (TypeK 4)),
+                    (1, TypeFunc [TypeK 2] (TypeK 5)),
+                    (2, TypeFunc [TypeFunc [TypeK 1, TypeK 2] (TypeK 3)] (TypeK 7)),
+                    (3, TypeFunc [TypeLazy (TypeK 8)] (TypeK 9))
+                  ],
+              typeCheckerPairs =
+                [ (TypeK 10, TypeNone),
+                  (TypeFunc [TypeInt] TypeNone, TypeFunc [TypeK 9] (TypeK 10)),
+                  (TypeK 7, TypeFunc [TypeInt, TypeInt] (TypeK 8)),
+                  (TypeK 3, TypeK 6),
+                  (TypeFunc [TypeInt, TypeInt] TypeInt, TypeFunc [TypeK 4, TypeK 5] (TypeK 6))
+                ]
+            }
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [ StmtReturn $
+                  Just $
+                    ExprCall
+                      (ExprVar "+")
+                      [ ExprForce (Just 0) $ ExprVar "x",
+                        ExprForce (Just 1) $ ExprVar "y"
+                      ]
+              ],
+            StmtFunc
+              "lazy_add_0"
+              ["x"]
+              [ StmtReturn $
+                  Just $
+                    ExprLazy $
+                      ExprCall (ExprForce (Just 2) $ ExprVar "add_0") [ExprVar "x", ExprInt 1]
+              ],
+            StmtVoid $
+              ExprCall
+                (ExprVar "print")
+                [ ExprForce
+                    (Just 4)
+                    $ ExprLazy
+                    $ ExprCall (ExprForce (Just 3) $ ExprVar "lazy_add_0") [ExprInt 3]
+                ],
+            StmtVoid $
+              ExprCall
+                (ExprVar "print")
+                [ ExprForce
+                    (Just 6)
+                    $ ExprLazy
+                    $ ExprCall (ExprForce (Just 5) $ ExprVar "add_0")
+                    $ map ExprInt [4, 5]
+                ]
+          ],
+        Right $
+          newTypeChecker
+            { typeCheckerK = 19,
+              typeCheckerFuncs =
+                M.union
+                  ( M.fromList
+                      [ (["add_0", "main"], TypeFunc [TypeK 1, TypeK 2] (TypeK 3)),
+                        (["lazy_add_0", "main"], TypeFunc [TypeK 7] (TypeK 8)),
+                        (["main"], TypeFunc [] (TypeK 0))
+                      ]
+                  )
+                  $ typeCheckerFuncs newTypeChecker,
+              typeCheckerLocals =
+                M.fromList
+                  [ (["x", "add_0", "main"], TypeK 1),
+                    (["x", "lazy_add_0", "main"], TypeK 7),
+                    (["y", "add_0", "main"], TypeK 2)
+                  ],
+              typeCheckerForces =
+                M.fromList
+                  [ (0, TypeFunc [TypeK 1] (TypeK 4)),
+                    (1, TypeFunc [TypeK 2] (TypeK 5)),
+                    (2, TypeFunc [TypeFunc [TypeK 1, TypeK 2] (TypeK 3)] (TypeK 9)),
+                    (3, TypeFunc [TypeFunc [TypeK 7] (TypeK 8)] (TypeK 11)),
+                    (4, TypeFunc [TypeLazy (TypeK 12)] (TypeK 13)),
+                    (5, TypeFunc [TypeFunc [TypeK 1, TypeK 2] (TypeK 3)] (TypeK 15)),
+                    (6, TypeFunc [TypeLazy (TypeK 16)] (TypeK 17))
+                  ],
+              typeCheckerPairs =
+                [ (TypeK 18, TypeNone),
+                  (TypeFunc [TypeInt] TypeNone, TypeFunc [TypeK 17] (TypeK 18)),
+                  (TypeK 15, TypeFunc [TypeInt, TypeInt] (TypeK 16)),
+                  (TypeK 14, TypeNone),
+                  (TypeFunc [TypeInt] TypeNone, TypeFunc [TypeK 13] (TypeK 14)),
+                  (TypeK 11, TypeFunc [TypeInt] (TypeK 12)),
+                  (TypeK 8, TypeLazy (TypeK 10)),
+                  (TypeK 9, TypeFunc [TypeK 7, TypeInt] (TypeK 10)),
+                  (TypeK 3, TypeK 6),
+                  (TypeFunc [TypeInt, TypeInt] TypeInt, TypeFunc [TypeK 4, TypeK 5] (TypeK 6))
+                ]
+            }
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [ StmtReturn $
+                  Just $
+                    ExprCall
+                      (ExprVar "+")
+                      [ExprForce (Just 0) $ ExprVar "x", ExprForce (Just 1) $ ExprVar "y"]
+              ],
+            StmtFunc
+              "lazy_add_0"
+              ["x"]
+              [ StmtReturn $
+                  Just $
+                    ExprLazy $
+                      ExprCall (ExprForce (Just 2) $ ExprVar "add_0") [ExprVar "x", ExprInt 1]
+              ]
+          ],
+        Right $
+          newTypeChecker
+            { typeCheckerK = 11,
+              typeCheckerFuncs =
+                M.union
+                  ( M.fromList
+                      [ (["add_0", "main"], TypeFunc [TypeK 1, TypeK 2] (TypeK 3)),
+                        (["lazy_add_0", "main"], TypeFunc [TypeK 7] (TypeK 8)),
+                        (["main"], TypeFunc [] (TypeK 0))
+                      ]
+                  )
+                  $ typeCheckerFuncs newTypeChecker,
+              typeCheckerLocals =
+                M.fromList
+                  [ (["x", "add_0", "main"], TypeK 1),
+                    (["x", "lazy_add_0", "main"], TypeK 7),
+                    (["y", "add_0", "main"], TypeK 2)
+                  ],
+              typeCheckerForces =
+                M.fromList
+                  [ (0, TypeFunc [TypeK 1] (TypeK 4)),
+                    (1, TypeFunc [TypeK 2] (TypeK 5)),
+                    (2, TypeFunc [TypeFunc [TypeK 1, TypeK 2] (TypeK 3)] (TypeK 9))
+                  ],
+              typeCheckerPairs =
+                [ (TypeK 8, TypeLazy (TypeK 10)),
+                  (TypeK 9, TypeFunc [TypeK 7, TypeInt] (TypeK 10)),
+                  (TypeK 3, TypeK 6),
+                  (TypeFunc [TypeInt, TypeInt] TypeInt, TypeFunc [TypeK 4, TypeK 5] (TypeK 6))
+                ]
+            }
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [ StmtReturn $
+                  Just $
+                    ExprCall
+                      (ExprVar "+")
+                      [ExprForce (Just 0) $ ExprVar "x", ExprForce (Just 1) $ ExprVar "y"]
+              ],
+            StmtFunc
+              "lazy_add_0"
+              ["x"]
+              [ StmtReturn $
+                  Just $
+                    ExprLazy $
+                      ExprCall (ExprForce (Just 2) $ ExprVar "add_0") [ExprVar "x", ExprInt 1]
+              ],
+            StmtVoid $
+              ExprCall
+                (ExprVar "print")
+                [ ExprForce (Just 4) $
+                    ExprLazy $
+                      ExprCall (ExprForce (Just 3) $ ExprVar "lazy_add_0") [ExprInt 3]
+                ]
+          ],
+        Right $
+          newTypeChecker
+            { typeCheckerK = 15,
+              typeCheckerFuncs =
+                M.union
+                  ( M.fromList
+                      [ (["add_0", "main"], TypeFunc [TypeK 1, TypeK 2] (TypeK 3)),
+                        (["lazy_add_0", "main"], TypeFunc [TypeK 7] (TypeK 8)),
+                        (["main"], TypeFunc [] (TypeK 0))
+                      ]
+                  )
+                  $ typeCheckerFuncs newTypeChecker,
+              typeCheckerLocals =
+                M.fromList
+                  [ (["x", "add_0", "main"], TypeK 1),
+                    (["x", "lazy_add_0", "main"], TypeK 7),
+                    (["y", "add_0", "main"], TypeK 2)
+                  ],
+              typeCheckerForces =
+                M.fromList
+                  [ (0, TypeFunc [TypeK 1] (TypeK 4)),
+                    (1, TypeFunc [TypeK 2] (TypeK 5)),
+                    (2, TypeFunc [TypeFunc [TypeK 1, TypeK 2] (TypeK 3)] (TypeK 9)),
+                    (3, TypeFunc [TypeFunc [TypeK 7] (TypeK 8)] (TypeK 11)),
+                    (4, TypeFunc [TypeLazy (TypeK 12)] (TypeK 13))
+                  ],
+              typeCheckerPairs =
+                [ (TypeK 14, TypeNone),
+                  (TypeFunc [TypeInt] TypeNone, TypeFunc [TypeK 13] (TypeK 14)),
+                  (TypeK 11, TypeFunc [TypeInt] (TypeK 12)),
+                  (TypeK 8, TypeLazy (TypeK 10)),
+                  (TypeK 9, TypeFunc [TypeK 7, TypeInt] (TypeK 10)),
+                  (TypeK 3, TypeK 6),
+                  (TypeFunc [TypeInt, TypeInt] TypeInt, TypeFunc [TypeK 4, TypeK 5] (TypeK 6))
+                ]
+            }
       )
     ]
 
@@ -584,7 +925,9 @@ testDeref =
   map
     ( uncurry (~?=)
         . bimap
-          (uncurry evalStateT . first (deref :: Type -> StateT (M.Map Int Type) (Either Error) Type))
+          ( uncurry evalStateT
+              . first (deref :: Type -> StateT (M.Map Int Type) (Either Error) Type)
+          )
           Right
     )
     [ ((TypeK 0, mempty), TypeK 0),
@@ -730,8 +1073,18 @@ lazify stmt = do
   pair <- case M.lookup ["main"] $ typeCheckerFuncs typeChecker of
     Just mainType -> return (mainType, TypeFunc [] TypeNone)
     Nothing -> Left ErrorLazify
-  types <- execStateT (unify (pair : typeCheckerPairs typeChecker)) mempty
-  evalStateT (rewriteStmt (typeCheckerForces typeChecker) lazyStmt) types
+  types0 <- execStateT (unify (pair : typeCheckerPairs typeChecker)) mempty
+  types1 <- execStateT (mapM f $ M.elems $ typeCheckerForces typeChecker) types0
+  evalStateT (rewriteStmt (typeCheckerForces typeChecker) lazyStmt) types1
+  where
+    f :: Type -> StateT (M.Map Int Type) (Either Error) ()
+    f (TypeFunc [argType0] returnType0) = do
+      argType1 <- deref argType0
+      returnType1 <- deref returnType0
+      case (argType1, returnType1) of
+        (TypeFunc {}, TypeFunc {}) -> unify [(argType1, returnType1)]
+        _ -> return ()
+    f _ = return ()
 
 testLazify :: [Test]
 testLazify =
@@ -791,6 +1144,104 @@ testLazify =
               StmtDecl "x0" $ ExprLazy $ ExprCall (ExprVar "f1") [],
               StmtDecl "x1" $ ExprLazy $ ExprCall (ExprForce Nothing $ ExprVar "x0") [],
               StmtVoid $ ExprCall (ExprVar "print") [ExprForce Nothing $ ExprVar "x1"]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+            StmtFunc
+              "lazy_add_0"
+              ["x"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_0") [ExprInt 3]]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc
+                "add_0"
+                ["x", "y"]
+                [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+              StmtFunc
+                "lazy_add_0"
+                ["x"]
+                [StmtReturn $ Just $ ExprLazy $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ ExprForce Nothing $
+                      ExprForce Nothing $
+                        ExprLazy $
+                          ExprCall (ExprVar "lazy_add_0") [ExprInt 3]
+                  ]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc
+                "add_0"
+                ["x", "y"]
+                [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ExprForce Nothing $ ExprLazy $ ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc
+              "add_0"
+              ["x", "y"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+            StmtFunc
+              "lazy_add_0"
+              ["x"]
+              [StmtReturn $ Just $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_0") [ExprInt 3]],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc
+                "add_0"
+                ["x", "y"]
+                [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
+              StmtFunc
+                "lazy_add_0"
+                ["x"]
+                [ StmtReturn $
+                    Just $
+                      ExprLazy $
+                        ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]
+                ],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ExprForce Nothing $ ExprForce Nothing $ ExprLazy $ ExprCall (ExprVar "lazy_add_0") [ExprInt 3]],
+              StmtVoid $
+                ExprCall
+                  (ExprVar "print")
+                  [ExprForce Nothing $ ExprLazy $ ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
             ]
       )
     ]
