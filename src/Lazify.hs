@@ -1074,17 +1074,17 @@ lazify stmt = do
     Just mainType -> return (mainType, TypeFunc [] TypeNone)
     Nothing -> Left ErrorLazify
   types0 <- execStateT (unify (pair : typeCheckerPairs typeChecker)) mempty
-  types1 <- execStateT (mapM f $ M.elems $ typeCheckerForces typeChecker) types0
+  types1 <- execStateT (mapM unifyForces $ M.elems $ typeCheckerForces typeChecker) types0
   evalStateT (rewriteStmt (typeCheckerForces typeChecker) lazyStmt) types1
-  where
-    f :: Type -> StateT (M.Map Int Type) (Either Error) ()
-    f (TypeFunc [argType0] returnType0) = do
-      argType1 <- deref argType0
-      returnType1 <- deref returnType0
-      case (argType1, returnType1) of
-        (TypeFunc {}, TypeFunc {}) -> unify [(argType1, returnType1)]
-        _ -> return ()
-    f _ = return ()
+
+unifyForces :: Type -> StateT (M.Map Int Type) (Either Error) ()
+unifyForces (TypeFunc [argType0] returnType0) = do
+  argType1 <- deref argType0
+  returnType1 <- deref returnType0
+  case (argType1, returnType1) of
+    (TypeFunc {}, TypeFunc {}) -> unify [(argType1, returnType1)]
+    _ -> return ()
+unifyForces _ = return ()
 
 testLazify :: [Test]
 testLazify =
