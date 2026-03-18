@@ -102,6 +102,7 @@ data Error
   | ErrorStmtToType Stmt
   | ErrorUnify1 Type Type
   | ErrorRewriteExprForce Type Type Expr
+  | ErrorUnifyForces Type
   | ErrorLazify
   deriving (Eq, Show)
 
@@ -1084,7 +1085,7 @@ unifyForces (TypeFunc [argType0] returnType0) = do
   case (argType1, returnType1) of
     (TypeFunc {}, TypeFunc {}) -> unify [(argType1, returnType1)]
     _ -> return ()
-unifyForces _ = return ()
+unifyForces forceType = lift $ Left $ ErrorUnifyForces forceType
 
 testLazify :: [Test]
 testLazify =
