@@ -961,11 +961,7 @@ rewriteExpr forces (ExprLazy expr) = ExprLazy <$> rewriteExpr forces expr
 rewriteExprForce :: Type -> Type -> Expr -> StateT (M.Map Int Type) (Either Error) Expr
 rewriteExprForce expectedType@(TypeLazy {}) givenType expr =
   lift $ Left $ ErrorRewriteExprForce expectedType givenType expr
-rewriteExprForce expectedType givenType expr
-  | expectedType == givenType = return expr
 rewriteExprForce expectedType@(TypeK {}) givenType expr =
-  lift $ Left $ ErrorRewriteExprForce expectedType givenType expr
-rewriteExprForce expectedType givenType@(TypeK {}) expr =
   lift $ Left $ ErrorRewriteExprForce expectedType givenType expr
 rewriteExprForce expectedType (TypeLazy givenType) expr =
   rewriteExprForce expectedType givenType $ ExprForce Nothing expr
@@ -1251,6 +1247,33 @@ testLazify =
                 ExprCall
                   (ExprVar "print")
                   [ExprForce Nothing $ ExprLazy $ ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
+            ]
+      ),
+      ( StmtFunc
+          "main"
+          []
+          [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+            StmtFunc "f1" [] [StmtReturn $ Just $ ExprVar "f0"],
+            StmtFunc "f2" [] [StmtReturn $ Just $ ExprVar "f1"],
+            StmtDecl "y" $ ExprCall (ExprCall (ExprCall (ExprVar "f2") []) []) [ExprInt 1],
+            StmtVoid $ ExprCall (ExprVar "print") [ExprVar "y"]
+          ],
+        Right $
+          StmtFunc
+            "main"
+            []
+            [ StmtFunc "f0" ["x"] [StmtReturn $ Just $ ExprVar "x"],
+              StmtFunc "f1" [] [StmtReturn $ Just $ ExprVar "f0"],
+              StmtFunc "f2" [] [StmtReturn $ Just $ ExprVar "f1"],
+              StmtDecl "y" $
+                ExprLazy $
+                  ExprCall
+                    ( ExprForce Nothing $
+                        ExprLazy $
+                          ExprCall (ExprForce Nothing $ ExprLazy $ ExprCall (ExprVar "f2") []) []
+                    )
+                    [ExprInt 1],
+              StmtVoid $ ExprCall (ExprVar "print") [ExprForce Nothing $ ExprVar "y"]
             ]
       )
     ]
