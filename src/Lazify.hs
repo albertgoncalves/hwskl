@@ -1308,10 +1308,6 @@ main = do
             ["x", "y"]
             [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
           StmtFunc
-            "add_2"
-            ["x", "y"]
-            [StmtReturn $ Just $ ExprCall (ExprVar "+") $ map ExprVar ["x", "y"]],
-          StmtFunc
             "lazy_add_0"
             ["x"]
             [StmtReturn $ Just $ ExprCall (ExprVar "add_0") [ExprVar "x", ExprInt 1]],
@@ -1319,10 +1315,6 @@ main = do
             "lazy_add_1"
             ["x"]
             [StmtReturn $ Just $ ExprCall (ExprVar "add_1") [ExprVar "x", ExprInt 1]],
-          StmtFunc
-            "lazy_add_2"
-            ["x"]
-            [StmtReturn $ Just $ ExprCall (ExprVar "add_2") [ExprVar "x", ExprInt 1]],
           StmtDecl "x" $
             ExprCall (ExprVar "lazy_add_1") [ExprCall (ExprVar "lazy_add_0") [ExprInt (-2)]],
           StmtDecl "y" $ ExprVar "x",
@@ -1330,6 +1322,6 @@ main = do
           StmtVoid $ ExprCall (ExprVar "print") [ExprVar "x"],
           StmtVoid $ ExprCall (ExprVar "print") [ExprVar "y"],
           StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_0") [ExprInt 3]],
-          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_2") [ExprVar "x"]],
+          StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "lazy_add_1") [ExprVar "x"]],
           StmtVoid $ ExprCall (ExprVar "print") [ExprCall (ExprVar "add_0") $ map ExprInt [4, 5]]
         ]
