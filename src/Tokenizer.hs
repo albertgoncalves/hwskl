@@ -1,12 +1,11 @@
 tokenize :: String -> [String]
 tokenize [] = []
-tokenize (' ' : cs) = tokenize cs
-tokenize cs'@(c : cs)
+tokenize (c : cs)
   | c `elem` space = tokenize cs
   | c `elem` delims = [c] : tokenize cs
-  | otherwise = token : tokenize rest
+  | otherwise = (c : token) : tokenize rest
   where
-    (token, rest) = span (`notElem` (space ++ delims)) cs'
+    (token, rest) = span (`notElem` (space ++ delims)) cs
     space = " \n\r\t"
     delims = ",(){}:"
 
