@@ -9,10 +9,8 @@ tokenize t0 =
     Nothing -> []
     Just (c0, t2) ->
       if c0 `elem` delims
-        then (T.take 1 t1) : tokenize t2
-        else
-          let (t3, t4) = T.span (\c1 -> not (isSpace c1 || c1 `elem` delims)) t1
-           in t3 : tokenize t4
+        then T.take 1 t1 : tokenize t2
+        else uncurry (:) $ tokenize <$> T.span (\c1 -> not (isSpace c1 || c1 `elem` delims)) t1
   where
     delims = ",(){}:" :: String
     t1 = T.stripStart t0
