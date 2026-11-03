@@ -39,6 +39,7 @@ lint () {
 
 runh () {
     handle=$(basename "${1%%.*}")
+    args=("$@")
     (
         if [ "$(ls -A "$WD/build")" ]; then
             rm "$WD/build"/*
@@ -46,7 +47,7 @@ runh () {
         cd "$WD/src" || return
         ghc "${FLAGS[@]}" -o "$WD/bin/$handle" "$handle.hs" || return
         cd "$WD" || return
-        "$WD/bin/$handle" +RTS -xc -RTS
+        "$WD/bin/$handle" +RTS -xc -RTS "${args[@]:1}"
     )
 }
 
